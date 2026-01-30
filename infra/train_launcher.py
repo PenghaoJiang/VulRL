@@ -1,9 +1,17 @@
 """
-SkyRL CVE Training Launcher
-完整的训练启动器
+SkyRL Unified Security Training Launcher
+完整的训练启动器，支持 Vulhub 和 CTF 混合训练
 
 用法:
     python train_launcher.py
+
+支持的数据源：
+- Vulhub: CVE 漏洞数据集
+- CTF: CTF 挑战数据集（通过 dataset_converter.py 转换）
+
+注意：
+- 数据集需要先通过 dataset_converter.py 转换为统一格式
+- 可以混合使用多种数据源进行训练
 """
 
 import os

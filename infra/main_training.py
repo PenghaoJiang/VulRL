@@ -1,10 +1,14 @@
 """
-CVE Exploit Training Entry Point for SkyRL
+Unified Security Environment Training Entry Point for SkyRL
 用法: uv run --isolated --extra vllm python main_training.py
 
 这是SkyRL训练的入口点，负责：
-1. 注册CVE环境到skyrl_gym
+1. 注册统一安全环境到skyrl_gym（支持 Vulhub 和 CTF）
 2. 启动训练循环
+
+支持的环境类型：
+- Vulhub: CVE 漏洞利用环境
+- CTF: CTF 挑战环境（包括 CVE-bench）
 """
 
 import os
@@ -24,10 +28,16 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 def skyrl_entrypoint(cfg: DictConfig):
     """Ray远程任务入口点"""
 
-    # 注册CVE环境
+    # 注册统一安全环境（支持 Vulhub 和 CTF）
+    register(
+        id="security_env.SecurityEnv",
+        entry_point="security_env:SecurityEnv",
+    )
+
+    # 向后兼容：也注册旧的环境名
     register(
         id="cve_exploit_env.CVEExploitEnv",
-        entry_point="cve_exploit_env:CVEExploitEnv",
+        entry_point="security_env:SecurityEnv",
     )
 
     # 启动训练
