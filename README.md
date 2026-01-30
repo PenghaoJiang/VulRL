@@ -1,50 +1,109 @@
-# CVE Exploit RL Training System
+# VulRL - Unified Security RL Training System
 
-基于 SkyRL 框架和 LoRA 微调的漏洞利用强化学习训练系统。该系统使用 Vulhub 漏洞环境作为训练场景，通过 LLM-as-Judge（GPT-4o）进行视觉评估，训练模型学习自动化漏洞利用。
+基于 SkyRL 框架和 LoRA 微调的**统一安全强化学习训练系统**。
+
+## 🌟 核心特性
+
+- ✅ **统一环境接口**：支持 Vulhub + CTF (CVE-bench) 混合训练
+- ✅ **跨环境能力迁移**：Agent 学习通用漏洞利用能力，而非特定环境技巧
+- ✅ **标准化接口**：遵循 Gymnasium 规范，易于扩展新数据源
+- ✅ **复合奖励机制**：中间奖励 + 文本过程分数 + 视觉结果分数
+- ✅ **自动 PoC 生成**：使用 GPT-4o 从 README 自动生成可执行 Python PoC
+- ✅ **向后兼容**：现有训练代码无需修改
+
+## 📊 支持的数据源
+
+| 数据源 | 类型 | 环境数量 | 特点 |
+|--------|------|---------|------|
+| **Vulhub** | CVE 漏洞环境 | 700+ | 真实漏洞复现，Docker Compose 启动 |
+| **CVE-bench** | CTF 挑战 | 40+ | 关键严重性 CVE，多种攻击类型 |
+| **Custom** | 自定义环境 | 可扩展 | 通过适配器插件化添加 |
 
 ## 目录结构
 
 ```
-dataset/
-├── README.md                    # 本文档
-├── vulhub_dataset_builder.py    # 数据集构建器
-├── cve_exploit_env.py           # RL 环境定义
-├── main_training.py             # SkyRL 训练入口点
-├── train_launcher.py            # 训练启动器（主要配置文件）
-├── test_launcher.py             # CVE-bench 测试启动器
-├── lora_model_provider.py       # Inspect AI 模型提供者
-├── _registry.py                 # 模型注册入口
-├── pyproject.toml               # 项目配置
-├── cve_vulhub/                  # 生成的训练数据
-│   └── train.parquet            # 训练数据集
-└── eval_results/                # 测试结果目录
+VulRL/
+├── README.md                          # 本文档
+├── dataset/                           # 数据集模块
+│   ├── vulhub_dataset_builder.py     # Vulhub 数据集构建器
+│   ├── dataset_converter.py          # 统一格式转换工具 (NEW)
+│   └── cve_vulhub/                   # 生成的训练数据
+│       └── train.parquet             # Vulhub 训练数据集
+├── infra/                             # 训练和测试基础设施
+│   ├── env_types.py                  # 标准化数据结构 (NEW)
+│   ├── env_adapter.py                # 适配器抽象基类 (NEW)
+│   ├── vulhub_adapter.py             # Vulhub 适配器 (NEW)
+│   ├── ctf_adapter.py                # CTF 适配器 (NEW)
+│   ├── security_env.py               # 统一环境 (NEW)
+│   ├── cve_exploit_env.py            # 原 RL 环境（保留奖励组件）
+│   ├── main_training.py              # SkyRL 训练入口（已更新）
+│   ├── train_launcher.py             # 训练启动器（已更新）
+│   ├── test_launcher.py              # CVE-bench 测试启动器
+│   ├── lora_model_provider.py        # Inspect AI 模型提供者
+│   ├── _registry.py                  # 模型注册
+│   ├── UNIFIED_ENV_GUIDE.md          # 统一环境详细指南 (NEW)
+│   ├── test_unified_env.py           # 测试脚本 (NEW)
+│   └── pyproject.toml                # 项目配置
+├── benchmark/                         # 基准测试
+│   ├── cve-bench/                    # CVE-bench 仓库
+│   └── vulhub/                       # Vulhub 仓库
+└── eval_results/                     # 测试结果目录
 ```
 
 ## 系统架构
 
+### 统一环境架构（v2.0 新特性）
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Training Pipeline                       │
+│                 Training Pipeline                            │
 ├─────────────────────────────────────────────────────────────┤
 │  train_launcher.py  →  main_training.py  →  SkyRL Framework │
 │         ↓                    ↓                    ↓          │
 │   配置参数生成           Ray 初始化          GRPO 训练循环    │
 │         ↓                    ↓                    ↓          │
-│   启动训练命令           环境注册            LoRA 微调        │
+│   启动训练命令         环境注册(NEW)        LoRA 微调         │
 ├─────────────────────────────────────────────────────────────┤
-│                      Environment                             │
+│              Unified Environment Layer (NEW)                 │
 ├─────────────────────────────────────────────────────────────┤
-│  cve_exploit_env.py                                          │
-│  ├── CVEExploitEnv      # 主环境类                           │
-│  ├── LLM1Judge          # GPT-4o 视觉判断器                  │
-│  └── ScreenshotGenerator # 证据截图生成                      │
+│  SecurityEnv (统一环境接口，遵循 Gymnasium 规范)              │
+│  ├── reset() -> (observation, info)                         │
+│  └── step(action) -> (obs, reward, terminated, truncated)   │
+│                      ↓                                       │
+│            ┌─────────┴─────────┐                            │
+│            ↓                   ↓                             │
+│    VulhubAdapter          CTFAdapter                         │
+│    (Vulhub 数据源)        (CVE-bench/CTF)                    │
+│            ↓                   ↓                             │
+│    返回值标准化           返回值标准化                        │
 ├─────────────────────────────────────────────────────────────┤
-│                      Docker Environment                      │
+│              Bottom Layer Implementations                    │
 ├─────────────────────────────────────────────────────────────┤
-│  Vulhub Container ←→ Attacker Container                      │
-│  (目标漏洞环境)         (执行攻击命令)                        │
+│  Docker Compose (Vulhub)  │  Dockerfile/Compose (CTF)       │
+│  Vulhub Container         │  CTF Container                   │
+│       ↕                   │       ↕                          │
+│  Attacker Container       │  Attacker Container              │
+├─────────────────────────────────────────────────────────────┤
+│                  Reward Mechanism (保留)                     │
+├─────────────────────────────────────────────────────────────┤
+│  StepJudge (中间奖励)  →  TrajectoryJudge (文本过程)         │
+│                       →  LLM1Judge (视觉结果)                │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### 关键改进
+
+**统一标准**：
+- 所有环境（Vulhub/CTF）返回相同的标准化数据结构
+- Agent 只与标准接口交互，不感知底层差异
+
+**能力迁移**：
+- 在 Vulhub 和 CTF 之间混合训练
+- Agent 学习通用的漏洞利用技能
+
+**易于扩展**：
+- 新增数据源只需实现一个适配器类
+- 插件化架构，无需修改核心代码
 
 ## 前置要求
 
@@ -87,7 +146,36 @@ export OPENAI_API_KEY="your-openai-api-key"
 
 ## 快速开始
 
-### Step 1: 构建数据集
+### 📖 完整文档
+
+- **统一环境详细指南**：[infra/UNIFIED_ENV_GUIDE.md](infra/UNIFIED_ENV_GUIDE.md)
+  - API 参考、混合训练、故障排除、扩展指南
+
+### Step 0: 数据转换（新增）
+
+**将现有数据转换为统一格式**，支持混合训练：
+
+```bash
+# 1. 转换 Vulhub 数据集（如果已有 train.parquet）
+python dataset/dataset_converter.py vulhub \
+    --input ~/data/cve_vulhub/train.parquet \
+    --output ~/unified_tasks/vulhub \
+    --format json
+
+# 2. 转换 CVE-bench 数据
+python dataset/dataset_converter.py cvebench \
+    --input ~/benchmark/cve-bench \
+    --output ~/unified_tasks/ctf \
+    --variant zero_day
+
+# 3. 查看转换结果
+ls ~/unified_tasks/vulhub/  # CVE-XXXX-YYYY.json
+ls ~/unified_tasks/ctf/     # CVE-XXXX-YYYY.json
+```
+
+> **注意**：如果是首次使用，请先完成 Step 1 构建 Vulhub 数据集，再进行转换。
+
+### Step 1: 构建 Vulhub 数据集
 
 数据集构建器 v2.0 会自动：
 1. 解析 README 文件（提取代码块、图片）
@@ -116,17 +204,41 @@ python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ./cve_vulhu
 | `--model` | `gpt-4o` | 使用的 OpenAI 模型 |
 | `--api_key` | `$OPENAI_API_KEY` | OpenAI API Key |
 
-### Step 2: 启动训练（目前用的是我的WANDB的key)`
+### Step 2: 启动训练
+
+#### 选项 A：仅 Vulhub 训练（传统方式）
+
 ```bash
-export WANDB_API_KEY="0182a73971e45b6b05b10d7a8c3e77ea26a9a596"
-python train_launcher.py
+export WANDB_API_KEY="your-wandb-key"
+python infra/train_launcher.py
+```
+
+#### 选项 B：混合训练（推荐，利用统一环境）
+
+修改 `train_launcher.py` 的数据路径配置：
+
+```python
+# 在 build_command() 方法中
+params = [
+    # 混合 Vulhub 和 CTF 数据
+    f"++data.train_data=['{vulhub_config_dir}/*.json', '{ctf_config_dir}/*.json']",
+    # ...其他参数
+]
+```
+
+然后启动训练：
+
+```bash
+export WANDB_API_KEY="your-wandb-key"
+python infra/train_launcher.py
 ```
 
 训练启动器会自动：
 1. 检查前置条件（SkyRL、Vulhub、Docker、数据集）
 2. 构建 attacker Docker 镜像
 3. 复制必要文件到 SkyRL 目录
-4. 启动训练
+4. 使用统一环境（SecurityEnv）启动训练
+5. Agent 在 Vulhub 和 CTF 环境之间切换学习
 
 ## 配置参数详解
 
@@ -225,7 +337,7 @@ def build_config(self) -> dict:
 
 ## 可用工具
 
-环境提供两个工具供 Agent 使用：
+统一环境提供两个标准化工具供 Agent 使用，在所有环境类型（Vulhub/CTF）中保持一致：
 
 ### 1. bash
 在攻击者容器内执行任意 bash 命令。
@@ -237,6 +349,12 @@ def build_config(self) -> dict:
     "command": "nmap -p 1-1000 target"
   }
 }
+```
+
+**示例**：
+```json
+{"tool": "bash", "arguments": {"command": "curl -v http://target:80/"}}
+{"tool": "bash", "arguments": {"command": "python3 -c 'import requests; print(requests.get(\"http://target\").text)'"}}
 ```
 
 ### 2. http_request
@@ -254,11 +372,58 @@ def build_config(self) -> dict:
 }
 ```
 
+**示例**：
+```json
+{"tool": "http_request", "arguments": {"method": "GET", "path": "/"}}
+{"tool": "http_request", "arguments": {"method": "POST", "path": "/login", "json": {"user": "admin", "pass": "admin"}}}
+```
+
+### 工具特性
+
+- ✅ **标准化接口**：所有环境使用相同的工具调用格式
+- ✅ **自动路由**：工具调用自动路由到对应的适配器
+- ✅ **容器内执行**：在隔离的 attacker 容器中安全执行
+- ✅ **输出一致**：统一的输出格式（exit code + stdout + stderr）
+
 ## 奖励机制
 
-- **二值奖励**：成功 = 1.0，失败 = 0.0
-- **单次判断**：仅在 episode 结束时调用 LLM1 判断
-- **视觉比较**：将 Agent 的操作截图与 Ground Truth 图片对比
+### 三层复合奖励（完整保留）
+
+统一环境**完全保留**了现有的复合奖励机制：
+
+#### 1. 中间奖励（StepJudge - GPT-4o-mini）
+- **每步评估**：评估每个动作的贡献度
+- **分数范围**：0-40 分/步
+- **类型分类**：discovery / testing / exploitation / duplicate
+
+#### 2. 文本过程分数（TrajectoryJudge - GPT-4o）
+- **轨迹评估**：评估整体执行逻辑
+- **评估维度**：logical_flow / completeness / efficiency
+- **输出**：process_score (0-1)
+
+#### 3. 视觉结果分数（LLM1Judge - GPT-4o Vision）
+- **视觉比较**：对比 Agent 截图 vs Ground Truth
+- **输出**：result_score (0-1)
+
+#### 总奖励计算
+
+```python
+# 中间奖励总和
+intermediate_total = sum(step_rewards)
+
+# 融合最终分数
+final_score = 0.4 * text_score + 0.6 * vision_score
+final_reward = final_score * 100
+
+# 总奖励
+total_reward = intermediate_total + final_reward
+```
+
+### 优势
+
+- ✅ **避免稀疏奖励**：中间奖励引导探索
+- ✅ **平衡过程与结果**：既看执行过程，也看最终效果
+- ✅ **跨环境通用**：Vulhub 和 CTF 使用相同的奖励计算
 
 ## 常见问题
 
