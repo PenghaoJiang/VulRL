@@ -28,6 +28,7 @@ from .env_types import StandardObservation, StandardAction, StandardInfo, Standa
 from .env_adapter import BaseEnvAdapter
 from .vulhub_adapter import VulhubAdapter
 from .ctf_adapter import CTFAdapter
+from .xbow_adapter import XbowAdapter
 
 # 复用奖励组件（从现有 cve_exploit_env.py）
 try:
@@ -57,6 +58,7 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else object):
     支持多种后端：
     - Vulhub (通过 VulhubAdapter)
     - CTF (通过 CTFAdapter)
+    - Xbow (通过 XbowAdapter)
     - Custom (自定义适配器)
 
     特性：
@@ -70,6 +72,7 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else object):
     ADAPTERS = {
         "vulhub": VulhubAdapter,
         "ctf": CTFAdapter,
+        "xbow": XbowAdapter,
     }
 
     def __init__(
