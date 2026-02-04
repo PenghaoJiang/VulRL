@@ -161,6 +161,93 @@ def test_ctf_adapter():
         return False
 
 
+def test_xbow_adapter():
+    """测试 XbowAdapter"""
+    print("\n" + "=" * 70)
+    print("测试 XbowAdapter")
+    print("=" * 70)
+
+    # 配置
+    compose_path = project_root / "benchmark/xbow/benchmarks/XBEN-004-24/docker-compose.yml"
+    
+    # 检查文件是否存在
+    if not compose_path.exists():
+        print(f"\n✗ 测试跳过: Compose 文件不存在")
+        print(f"  路径: {compose_path}")
+        print("  提示：需要先使用 make build 构建 XBEN-004-24")
+        return False
+
+    config = StandardEnvConfig(
+        task_id="XBEN-004-24",
+        task_type="xbow",
+        max_steps=5,
+        timeout=30,
+        target_host="web",  # Will be detected automatically
+        target_port=80,     # Will be detected automatically
+        target_protocol="http",
+        backend_config={
+            "xbow_path": str(project_root / "benchmark/xbow"),
+            "compose_path": str(compose_path),
+            "benchmark_id": "XBEN-004-24"
+        }
+    )
+
+    try:
+        # 创建环境
+        print("\n1. 创建环境...")
+        env = SecurityEnv(config=config)
+        print("✓ 环境创建成功")
+        print(f"  Target: {env.adapter.config.get('target_host')}:{env.adapter.config.get('target_ports', [])}")
+
+        # Reset
+        print("\n2. Reset 环境...")
+        observation, info = env.reset()
+        print(f"✓ Reset 成功")
+        print(f"  Observation type: {type(observation).__name__}")
+        print(f"  Info type: {type(info).__name__}")
+        print(f"  Task ID: {info.task_id}")
+        print(f"  Step: {info.step}/{info.max_steps}")
+
+        # Step - bash
+        print("\n3. 测试 bash 命令...")
+        action = StandardAction(
+            action_type=ActionType.BASH,
+            arguments={"command": "echo 'Hello from Xbow test'"}
+        )
+        obs, reward, term, trunc, info = env.step(action)
+        print(f"✓ Bash 命令执行成功")
+        print(f"  Output preview: {obs.to_text()[:100]}...")
+        print(f"  Reward: {reward}")
+        print(f"  Done: {term or trunc}")
+
+        # Step - http_request
+        print("\n4. 测试 HTTP 请求...")
+        action = StandardAction(
+            action_type=ActionType.HTTP_REQUEST,
+            arguments={"method": "GET", "path": "/"}
+        )
+        obs, reward, term, trunc, info = env.step(action)
+        print(f"✓ HTTP 请求执行成功")
+        print(f"  Output preview: {obs.to_text()[:100]}...")
+        print(f"  Status code detected: {'200' in obs.to_text() or '404' in obs.to_text()}")
+
+        # Close
+        print("\n5. 关闭环境...")
+        env.close()
+        print("✓ 环境关闭成功")
+
+        print("\n" + "=" * 70)
+        print("XbowAdapter 测试通过！")
+        print("=" * 70)
+        return True
+
+    except Exception as e:
+        print(f"\n✗ 测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def test_action_parsing():
     """测试动作解析"""
     print("\n" + "=" * 70)
@@ -211,7 +298,7 @@ def test_adapter_registration():
 
     # 验证必需的适配器
     print("\n2. 验证必需的适配器...")
-    required = ["vulhub", "ctf"]
+    required = ["vulhub", "ctf", "xbow"]
     for adapter_type in required:
         if adapter_type in adapters:
             print(f"✓ {adapter_type} 已注册")
@@ -279,8 +366,9 @@ def main():
 
     # Docker 测试（可能跳过）
     print("\n\n### Docker 环境测试 ###\n")
-    results["vulhub_adapter"] = test_vulhub_adapter()
-    results["ctf_adapter"] = test_ctf_adapter()
+    results["vulhub_adapter"] = test_vulhub_adapter() 
+    results["ctf_adapter"] = test_ctf_adapter() 
+    results["xbow_adapter"] = test_xbow_adapter()
 
     # 总结
     print("\n\n" + "=" * 70)
