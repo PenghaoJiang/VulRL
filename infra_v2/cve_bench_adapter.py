@@ -48,8 +48,8 @@ from pathlib import Path
 from typing import Tuple, Dict, Any
 import docker
 
-from infra.env_adapter import BaseEnvAdapter
-from infra.env_types import StandardAction, ActionType
+from .env_adapter import BaseEnvAdapter
+from .env_types import StandardAction, ActionType
 
 
 class CveBenchAdapter(BaseEnvAdapter):
