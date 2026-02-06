@@ -3,6 +3,15 @@ CVE-BENCH 环境适配器
 将 CVE-BENCH Docker 环境转换为标准接口
 专门用于 CVE-BENCH 格式的挑战
 
+为什么默认使用 --scale agent=0:
+  CVE-BENCH 默认会启动一个 1.5GB 的 Kali Linux agent 容器 (cvebench/kali-large)
+  用于 AI agent 执行攻击命令。但在我们的适配器中：
+  1. 我们会启动自己的 attacker 容器 (轻量级 ~200MB)
+  2. CVE-BENCH 的 agent 启动慢 (~10-20s) 且占用大量资源 (1-2GB RAM)
+  3. 使用 --scale agent=0 可以跳过这个容器，节省时间和资源
+  4. "agent" 是 CVE-BENCH 中硬编码的服务名，所有挑战都使用相同的名称
+  参考: benchmark/cve-bench/src/common/sandboxes/kali/compose.yml
+
 自测启动 cve-bench 环境 (因为cvebench的dockerfile里面依赖环境变量，不走他自己的run的话就要自己export)：
 Linux/Mac:
 # Navigate to the challenge directory
@@ -27,8 +36,8 @@ export MYSQL_DATABASE="appdb"
 export MYSQL_HOST="db"
 export SECRET_TABLE_NAME="secret"
 
-# 2. Start docker compose
-docker compose up -d
+# 2. Start docker compose (skip CVE-BENCH's heavy Kali agent)
+docker compose up -d --scale agent=0
 
 """
 
@@ -228,9 +237,11 @@ class CveBenchAdapter(BaseEnvAdapter):
         print(f"  - CVE: {env.get('CVE')}")
         print(f"  - CVEBENCH_DOCKER_DIR: {env.get('CVEBENCH_DOCKER_DIR')}")
 
-        # 启动 docker-compose
+        # 启动 docker-compose (跳过 CVE-BENCH 的 Kali agent 容器)
+        # 使用 --scale agent=0 避免启动 1.5GB 的 Kali 容器，我们会启动自己的 attacker
         result = subprocess.run(
-            self.compose_cmd + ["-p", self.project_name, "-f", str(compose_path), "up", "-d", "--wait"],
+            self.compose_cmd + ["-p", self.project_name, "-f", str(compose_path), 
+                                "up", "-d", "--wait", "--scale", "agent=0"],
             cwd=compose_path.parent,
             env=env,  # ✅ 传递环境变量（关键！）
             capture_output=True,
@@ -250,8 +261,8 @@ class CveBenchAdapter(BaseEnvAdapter):
         # 发现容器
         self._discover_containers_from_compose(compose_path.parent)
 
-        # 发现 CVE-BENCH 的 agent 容器
-        self._discover_agent_container()
+        # 启动我们自己的 attacker 容器（已跳过 CVE-BENCH 的 agent）
+        self._start_attacker()
 
         # 构建服务 URL
         target_host = self.config.get("target_host", "target")
@@ -296,25 +307,43 @@ class CveBenchAdapter(BaseEnvAdapter):
                 print(f"[CveBenchAdapter] Found target container: {self.target_container.name}")
                 print(f"[CveBenchAdapter] Network: {self.network_name}")
     
-    def _discover_agent_container(self):
-        """发现 CVE-BENCH 的 agent 容器"""
+    def _start_attacker(self):
+        """启动攻击者容器"""
         try:
-            # CVE-BENCH agent 容器名格式: {project}-agent-1
-            agent_name = f"{self.project_name}-agent-1"
-            self.attacker_container = self.docker_client.containers.get(agent_name)
-            print(f"[CveBenchAdapter] Found CVE-BENCH agent container: {agent_name}")
-        except docker.errors.NotFound:
-            print(f"[CveBenchAdapter] Warning: CVE-BENCH agent container not found: {self.project_name}-agent-1")
-            print(f"[CveBenchAdapter] Continuing without agent container")
+            # 检查镜像
+            try:
+                self.docker_client.images.get("cve-attacker:latest")
+            except:
+                # 镜像不存在，使用简化版
+                pass
+
+            self.attacker_container = self.docker_client.containers.run(
+                "cve-attacker:latest",
+                name=f"attacker_{self.project_name}",
+                network=self.network_name,
+                detach=True,
+                remove=True,
+                command="tail -f /dev/null"
+            )
+            print(f"[CveBenchAdapter] Started attacker container: attacker_{self.project_name}")
         except Exception as e:
-            print(f"[CveBenchAdapter] Error discovering agent container: {e}")
+            print(f"[CveBenchAdapter] Warning: Failed to start attacker: {e}")
 
     def teardown(self) -> None:
         """清理 CVE-BENCH 环境"""
         print(f"[CveBenchAdapter] Cleaning up CVE-BENCH: {self.cve_id}")
         
         try:
-            # 停止 docker-compose（CVE-BENCH agent 也会被停止）
+            # 停止 attacker 容器
+            if self.attacker_container:
+                try:
+                    self.attacker_container.stop()
+                    self.attacker_container.remove()
+                    print(f"[CveBenchAdapter] Stopped attacker container")
+                except:
+                    pass
+            
+            # 停止 docker-compose
             compose_path = Path(self.compose_path).expanduser()
             
             # 需要传递环境变量以正确识别项目
