@@ -28,8 +28,8 @@ MANIFEST
 
 # Virtual Environments
 venv/
-env/
-ENV/
+# env/ # used by infra_v3
+# ENV/
 env.bak/
 venv.bak/
 .venv/

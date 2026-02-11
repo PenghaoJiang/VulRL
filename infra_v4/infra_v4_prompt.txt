@@ -1,0 +1,625 @@
+===============================================================================
+INFRA_V4 STRUCTURE SPECIFICATION
+===============================================================================
+
+CONTEXT:
+- Platform: Windows 11 PowerShell (use pwsh commands, no emojis in output)
+- Reference: E:\git_fork_folder\VulRL\infra_v3\
+- Target: E:\git_fork_folder\VulRL\infra_v4\
+
+===============================================================================
+ENTRY POINTS
+===============================================================================
+1. rl_launcher.py           - SkyRL training entry point
+2. test_trained_model.py    - Model evaluation entry point (Python, not bash)
+
+===============================================================================
+TRAINING PIPELINE ARCHITECTURE (rl_launcher.py)
+===============================================================================
+
+Layer 1: Training Entry Point
+  File: rl_launcher.py
+  Purpose: Accept training arguments and orchestrate parallel training
+  Args:
+    --checkpoint-dir    : Directory to save checkpoints
+    --task-type         : Type of tasks (cvebench, vulhub, xbow)
+    --task-ids          : Comma-separated task IDs to train on
+    --base-model        : Base LLM model path
+    --max-steps         : Max steps per episode
+  Calls: parallel.process_coordinator.start_parallel_training()
+
+Layer 2: Process-Level Parallelization
+  File: src/parallel/process_coordinator.py
+  Purpose: Use ProcessPoolExecutor to train on multiple CVEs in parallel
+  Logic: 
+    - Each CVE gets its own process
+    - Each process calls skyrl_wrapper for that CVE
+    - ProcessPoolExecutor manages process pool
+    - Manages multiple progress bars (one per CVE)
+  Note: Do NOT mix threading with Ray - Ray is handled internally by SkyRL
+
+Layer 2.5: Progress Monitoring
+  File: src/parallel/progress_monitor.py
+  Purpose: Display real-time progress for parallel training
+  Library: Use `tqdm` for terminal progress bars
+  
+  Requirements:
+    - Multiple progress bars displayed simultaneously (one per CVE/task)
+    - Each progress bar shows: [CVE-ID] Episode X/Y | Step Z/max_steps (XX%)
+    - Progress bars update in real-time from different processes
+    - Clean display without terminal corruption
+  
+  Implementation approach:
+    - Use tqdm.tqdm() with position parameter for multiple bars
+    - Each process gets its own progress bar at fixed position
+    - Progress bar format: "[CVE-2024-XXXX] Ep 5/100 | Step 15/30 (50%)"
+    - Update via shared state (multiprocessing.Manager or Queue)
+  
+  Example display during training:
+    ```
+    Training 4 CVEs in parallel...
+    
+    [CVE-2024-2624    ] Ep 12/100 | Step 23/30 (76%) |████████████░░░░| 76/100
+    [CVE-2024-2771    ] Ep  8/100 | Step 10/30 (33%) |█████░░░░░░░░░░░| 33/100
+    [CVE-2024-3094    ] Ep 15/100 | Step 28/30 (93%) |██████████████░░| 93/100
+    [jenkins/CVE-18861] Ep  3/100 | Step  5/30 (17%) |███░░░░░░░░░░░░░| 17/100
+    
+    Overall: 4 tasks running | Avg episode: 9.5/100 | Avg step progress: 54.8%
+    Elapsed: 00:15:32 | Est. remaining: 02:14:28
+    ```
+  
+  Progress bar behavior:
+    - Each bar updates independently as its process reports progress
+    - Bars remain in fixed positions (no jumping around)
+    - Step progress resets to 0% at start of each new episode
+    - Episode counter increments when episode completes
+    - Overall stats calculated from all active tasks
+  
+  Key functions:
+    - create_progress_bars(task_ids) -> dict[task_id, tqdm_bar]
+    - update_progress(task_id, episode, step, max_steps)
+    - close_progress_bars()
+    - format_bar_description(task_id, episode, step, max_steps) -> str
+
+Layer 3: Ray Configuration Management
+  File: src/parallel/ray_config.py
+  Purpose: Configure Ray initialization for SkyRL
+  Responsibilities:
+    - Ray.init() configuration
+    - Resource allocation (num_gpus, num_cpus)
+    - Ray dashboard settings
+    - SkyRL Hydra config overrides
+
+Layer 4: SkyRL Integration Wrapper
+  File: src/skyrl/skyrl_wrapper.py
+  Purpose: Bridge between process coordinator and SkyRL framework
+  Responsibilities:
+    - Register Gymnasium environment (SecurityEnv)
+    - Create SkyRL experiment (BasePPOExp)
+    - Pass config to SecurityEnv
+    - Let SkyRL handle Ray workers internally
+  Flow:
+    @ray.remote
+    def skyrl_entrypoint(cfg):
+        register(id="VulRL-v0", entry_point="env.security_env:SecurityEnv")
+        exp = BasePPOExp(cfg)
+        exp.run()
+
+Layer 5: Gymnasium Environment Interface
+  File: src/env/security_env.py
+  Purpose: Provide Gymnasium-compliant environment for SkyRL
+  Interface:
+    - reset() -> (observation, info)
+    - step(action) -> (observation, reward, terminated, truncated, info)
+    - close()
+  Responsibilities:
+    - Select appropriate adapter based on task_type
+    - Orchestrate reward computation
+    - Standardize observations and actions
+    - Report progress to progress_monitor (if enabled)
+  Dependencies:
+    - Creates adapter via EnvRegistry
+    - Creates reward via RewardRouter
+    - Updates progress dict (passed in config if parallel training)
+  
+  Progress integration:
+    ```python
+    class SecurityEnv(gym.Env):
+        def __init__(self, config):
+            self.task_id = config['task_id']
+            self.progress_dict = config.get('progress_dict', None)
+            self.current_episode = 0
+            self.current_step = 0
+            self.max_steps = config.get('max_steps', 30)
+        
+        def reset(self):
+            self.current_step = 0
+            self.current_episode += 1
+            self._update_progress()
+            # ... rest of reset logic
+        
+        def step(self, action):
+            self.current_step += 1
+            self._update_progress()
+            # ... rest of step logic
+        
+        def _update_progress(self):
+            if self.progress_dict is not None:
+                self.progress_dict[self.task_id] = {
+                    'episode': self.current_episode,
+                    'step': self.current_step,
+                    'max_steps': self.max_steps
+                }
+    ```
+
+Layer 6: Environment Registry
+  File: src/env/env_registry.py
+  Purpose: Factory for creating task-specific adapters
+  Logic:
+    def create(config):
+        if config['task_type'] == 'cvebench':
+            return CVEBenchAdapter(config)
+        elif config['task_type'] == 'vulhub':
+            return VulhubAdapter(config)
+        elif config['task_type'] == 'xbow':
+            return XbowAdapter(config)
+
+Layer 7: Docker Base Classes
+  File: src/docker/base/env_adapter.py
+  Purpose: Abstract base class for all environment adapters
+  Source: Copy from infra/env_adapter.py (existing, working code)
+  Interface:
+    - setup() -> None                  # Start containers
+    - teardown() -> None               # Stop containers
+    - reset() -> (observation, info)   # Reset and get initial observation
+    - step(action) -> tuple            # Execute action
+    - _get_target_info() -> dict       # Get target service info
+  Note: This is the base class that all adapters inherit from
+
+Layer 8: Environment Adapters (Self-Contained, Unchanged)
+  Files:
+    - src/docker/adapters/cvebench_adapter.py  (from infra_v2/)
+    - src/docker/adapters/vulhub_adapter.py    (from infra/)
+    - src/docker/adapters/xbow_adapter.py      (from infra/)
+  
+  Purpose: Copy existing adapters AS-IS, no modifications needed
+  
+  Why keep them unchanged?
+    ✅ Already working and tested
+    ✅ Minimal migration risk
+    ✅ Faster to implement
+    ✅ Can focus on new parallel execution layers
+  
+  Each adapter is SELF-CONTAINED with:
+    - Docker Compose operations (docker-compose up/down)
+    - Attacker container setup (_build_attacker_image, _start_attacker)
+    - Target container discovery
+    - Command execution (_execute_bash, _execute_http)
+    - All Docker operations handled internally
+  
+  Implementation details:
+    - setup() : 
+      ↳ Runs docker-compose to start target services
+      ↳ Builds/starts attacker container internally
+      ↳ Discovers containers and network
+      ↳ Waits for services to be ready
+    
+    - teardown() : 
+      ↳ Stops attacker container
+      ↳ Runs docker-compose down for target services
+      ↳ Cleans up resources
+    
+    - reset() : 
+      ↳ Generates task description
+      ↳ Returns initial observation with target info
+    
+    - step(action) : 
+      ↳ Executes bash/http commands in attacker container
+      ↳ Returns observation, reward, done, info
+    
+    - _build_attacker_image() :
+      ↳ Inline Dockerfile definition
+      ↳ Uses docker.from_env() to build image
+      ↳ Task-specific tools installation
+    
+    - _execute_bash(command) :
+      ↳ Uses container.exec_run() to execute in attacker
+      ↳ Returns stdout/stderr
+    
+    - _execute_http(method, url, ...) :
+      ↳ Uses container.exec_run() with curl/python
+      ↳ Returns HTTP response
+  
+  Note: No abstraction layers (no docker_manager, no attacker_manager)
+        Each adapter handles ALL Docker operations internally
+        This is intentional for simplicity and stability
+
+Layer 9: Reward System
+  File: src/reward/reward_router.py
+  Purpose: Route to task-specific reward computation
+  Logic:
+    def compute_reward(trajectory, task_type):
+        if task_type == 'cvebench':
+            return CVEBenchReward().compute(trajectory)
+        elif task_type == 'vulhub':
+            return VulhubReward().compute(trajectory)
+        elif task_type == 'xbow':
+            return XbowReward().compute(trajectory)
+  
+  Files:
+    - src/reward/base_reward.py
+    - src/reward/task_specific/cvebench_reward.py (returns 0 for now)
+    - src/reward/task_specific/vulhub_reward.py (returns 0 for now)
+    - src/reward/task_specific/xbow_reward.py (returns 0 for now)
+
+Layer 10: Model Management
+  Files:
+    - src/model/checkpoint_manager.py
+    - src/model/lora_loader.py
+  Purpose: Checkpoint saving, loading, and LoRA weight management
+
+===============================================================================
+TESTING PIPELINE ARCHITECTURE (test_trained_model.py)
+===============================================================================
+
+Entry Point: test_trained_model.py
+Purpose: Test trained model without Inspect AI (flexible, works with all adapters)
+Args:
+  --checkpoint        : Path to trained checkpoint
+  --base-model        : Base LLM model
+  --task-type         : Task type (cvebench, vulhub, xbow)
+  --task-id           : Single task ID to test
+  --task-ids          : Comma-separated task IDs for batch testing
+  --tasks-file        : JSON file with task list
+  --output            : Output file for results
+
+Logic:
+  1. Load frozen model (no gradients)
+  2. Create SecurityEnv (same as training!)
+  3. Run rollout collection loop (no policy updates)
+  4. Return trajectory and results
+
+Note: This replicates SkyRL's rollout loop WITHOUT policy updates
+
+===============================================================================
+DIRECTORY STRUCTURE
+===============================================================================
+
+infra_v4/
+├── rl_launcher.py                  # Training entry
+├── test_trained_model.py           # Testing entry
+├── pyproject.toml                  # Package config
+│
+├── src/vulrl/
+│   ├── __init__.py
+│   │
+│   ├── parallel/                   # Process-level parallelization
+│   │   ├── __init__.py
+│   │   ├── process_coordinator.py  # ProcessPoolExecutor logic
+│   │   ├── progress_monitor.py     # Multi-process progress bars
+│   │   └── ray_config.py           # Ray initialization
+│   │
+│   ├── skyrl/                      # SkyRL integration
+│   │   ├── __init__.py
+│   │   └── skyrl_wrapper.py        # SkyRL wrapper
+│   │
+│   ├── env/                        # Gymnasium environment
+│   │   ├── __init__.py
+│   │   ├── security_env.py         # Main environment class
+│   │   └── env_registry.py         # Adapter factory
+│   │
+│   ├── docker/                     # Docker adapters
+│   │   ├── __init__.py
+│   │   ├── base/
+│   │   │   ├── __init__.py
+│   │   │   ├── env_adapter.py      # Abstract adapter base (from infra/)
+│   │   │   └── env_types.py        # Standard types (from infra/)
+│   │   └── adapters/
+│   │       ├── __init__.py
+│   │       ├── cvebench_adapter.py # Copy from infra_v2/ (unchanged)
+│   │       ├── vulhub_adapter.py   # Copy from infra/ (unchanged)
+│   │       └── xbow_adapter.py     # Copy from infra/ (unchanged)
+│   │
+│   ├── reward/                     # Reward system
+│   │   ├── __init__.py
+│   │   ├── base_reward.py
+│   │   ├── reward_router.py
+│   │   └── task_specific/
+│   │       ├── __init__.py
+│   │       ├── cvebench_reward.py
+│   │       ├── vulhub_reward.py
+│   │       └── xbow_reward.py
+│   │
+│   └── model/                      # Model management
+│       ├── __init__.py
+│       ├── checkpoint_manager.py
+│       └── lora_loader.py
+│
+├── tasks_cvebench.json             # CVE-bench task list
+├── tasks_vulhub.json               # Vulhub task list
+└── tasks_xbow.json                 # Xbow task list
+
+===============================================================================
+KEY DESIGN DECISIONS
+===============================================================================
+
+1. PARALLELIZATION STRATEGY
+   - Use ProcessPoolExecutor for different CVEs (not threading!)
+   - Let SkyRL handle Ray workers internally
+   - Each process is independent, no shared state
+
+2. NAMING CONVENTIONS
+   - adapters (not adaptors)
+   - docker (not dockers)
+   - env (not main_framework)
+   - Consistent snake_case for files
+
+3. ADAPTER APPROACH (PRAGMATIC)
+   - Copy adapters from infra/ and infra_v2/ UNCHANGED
+   - No abstraction layers (no docker_manager, no attacker_manager)
+   - Each adapter is self-contained with ALL Docker logic
+   - Rationale: Working code, minimal risk, faster implementation
+   - Trade-off: Some code duplication, but stable and tested
+
+4. COMMAND EXECUTION
+   - _execute_bash() and _execute_http() stay INSIDE adapters
+   - Not extracted to util/ for simplicity
+   - Each adapter has its own implementation
+   - Keeps adapters fully self-contained
+
+5. TESTING APPROACH
+   - Python script, not bash
+   - Reuses SecurityEnv from training
+   - Works with ALL adapters (not just CVE-bench)
+
+6. ENVIRONMENT INTERFACE
+   - Keep security_env.py
+   - No test_env.py yet (same env for train and test)
+   - Gymnasium-compliant interface
+
+===============================================================================
+IMPLEMENTATION NOTES
+===============================================================================
+
+1. All reward functions return 0 for now (placeholder)
+2. Adapters are copied AS-IS from infra/ and infra_v2/ - NO modifications
+3. ProcessPoolExecutor in process_coordinator.py, NOT ThreadPoolExecutor
+4. Ray initialization happens in ray_config.py, used by skyrl_wrapper.py
+
+5. PROGRESS BAR SYSTEM (IMPORTANT):
+   
+   Requirements:
+   - Display multiple progress bars simultaneously (one per CVE/task)
+   - Each bar shows: [Task-ID] Episode X/Y | Step Z/max_steps (percentage)
+   - Real-time updates from different processes
+   - Clean terminal display (no corruption)
+   
+   Implementation using tqdm:
+   
+   ```python
+   from tqdm import tqdm
+   from multiprocessing import Manager
+   
+   # In process_coordinator.py
+   def start_parallel_training(task_ids):
+       manager = Manager()
+       progress_dict = manager.dict()
+       
+       # Create progress bars with fixed positions
+       bars = {}
+       for idx, task_id in enumerate(task_ids):
+           bars[task_id] = tqdm(
+               total=100,  # Percentage
+               desc=f"[{task_id[:20]}]",
+               position=idx,
+               leave=True
+           )
+       
+       # Start training processes
+       with ProcessPoolExecutor() as executor:
+           futures = {
+               executor.submit(train_task, tid, progress_dict): tid 
+               for tid in task_ids
+           }
+           
+           # Monitor and update progress bars
+           while futures:
+               # Check progress_dict for updates
+               for task_id, progress_info in progress_dict.items():
+                   episode = progress_info['episode']
+                   step = progress_info['step']
+                   max_steps = progress_info['max_steps']
+                   percentage = int((step / max_steps) * 100)
+                   
+                   # Update bar
+                   bars[task_id].n = percentage
+                   bars[task_id].set_description(
+                       f"[{task_id[:20]}] Ep {episode} | Step {step}/{max_steps}"
+                   )
+                   bars[task_id].refresh()
+   
+   # In training function (called by each process)
+   def train_task(task_id, progress_dict):
+       for episode in range(num_episodes):
+           for step in range(max_steps):
+               # Training logic...
+               
+               # Update progress
+               progress_dict[task_id] = {
+                   'episode': episode,
+                   'step': step,
+                   'max_steps': max_steps
+               }
+   ```
+   
+   Display format:
+   ```
+   [CVE-2024-2624]     Ep 12/100 | Step 23/30 (76%) ████████████░░░░
+   [CVE-2024-2771]     Ep 8/100  | Step 10/30 (33%) █████░░░░░░░░░░░
+   [vulhub/jenkins]    Ep 15/100 | Step 28/30 (93%) ██████████████░░
+   [xbow/challenge_1]  Ep 3/100  | Step 5/30  (17%) ███░░░░░░░░░░░░░
+   ```
+   
+   Key considerations:
+   - Use multiprocessing.Manager().dict() for shared progress state
+   - Each progress bar has fixed position parameter
+   - Update from main process, not worker processes (avoid conflicts)
+   - Use tqdm.refresh() to update display
+   - Close all bars properly on completion
+
+5. ADAPTER ARCHITECTURE (SELF-CONTAINED):
+   
+   ┌─────────────────────────────────────────────────────────────┐
+   │ SecurityEnv (Gymnasium interface)                           │
+   │   - Calls env_registry.create() to get adapter              │
+   └─────────────────────────┬───────────────────────────────────┘
+                             │
+            ┌────────────────┼────────────────┐
+            │                │                │
+   ┌────────▼─────┐  ┌──────▼───────┐  ┌────▼────────┐
+   │ CVEBench     │  │   Vulhub     │  │    Xbow     │
+   │   Adapter    │  │   Adapter    │  │   Adapter   │
+   └──────────────┘  └──────────────┘  └─────────────┘
+   
+   Each adapter is FULLY SELF-CONTAINED:
+   ├── setup()
+   │   ├── Run docker-compose (target services)
+   │   ├── _build_attacker_image() (inline Dockerfile)
+   │   ├── _start_attacker() (create attacker container)
+   │   └── _discover_containers()
+   ├── teardown()
+   │   ├── Stop attacker container
+   │   └── Run docker-compose down
+   ├── reset()
+   │   └── Generate task description
+   ├── step(action)
+   │   ├── _execute_bash() (internal method)
+   │   ├── _execute_http() (internal method)
+   │   └── Return observation, reward, done, info
+   └── _get_target_info()
+       └── Return target host/port/url
+   
+   Why self-contained?
+   ✅ Each adapter works independently
+   ✅ No shared state or dependencies between adapters
+   ✅ Easier to debug (all logic in one file)
+   ✅ Adapters are already tested and working
+   ✅ Can copy from infra/ without modifications
+
+6. NO ABSTRACTION LAYERS:
+   ❌ No docker_manager.py
+   ❌ No attacker_manager.py
+   ❌ No target_manager.py
+   ❌ No util/bash_executor.py
+   ❌ No util/http_executor.py
+   
+   Rationale: Keep adapters unchanged for stability and speed
+
+7. COPY SOURCES (Exact Copies, No Modifications):
+   - cvebench_adapter.py ← from infra_v2/cve_bench_adapter.py
+   - vulhub_adapter.py ← from infra/vulhub_adapter.py
+   - xbow_adapter.py ← from infra/xbow_adapter.py
+   - env_adapter.py ← from infra/env_adapter.py
+   - env_types.py ← from infra/env_types.py
+
+===============================================================================
+WHAT'S NEW IN INFRA_V4 (vs. infra/infra_v2/infra_v3)
+===============================================================================
+
+NEW COMPONENTS (Must Implement):
+  ✅ rl_launcher.py                   - Training entry with args parsing
+  ✅ test_trained_model.py            - Testing entry (SkyRL rollout without updates)
+  ✅ parallel/process_coordinator.py  - ProcessPoolExecutor for multiple CVEs
+  ✅ parallel/progress_monitor.py     - Multi-process progress bars (tqdm)
+  ✅ parallel/ray_config.py           - Ray initialization and config
+  ✅ skyrl/skyrl_wrapper.py           - Bridge to SkyRL framework
+  ✅ env/env_registry.py              - Adapter factory/selector
+  ✅ reward/reward_router.py          - Task-specific reward routing
+  ✅ model/checkpoint_manager.py      - Checkpoint management
+  ✅ model/lora_loader.py             - LoRA model loading
+
+ADAPTED COMPONENTS (From infra/):
+  🔄 env/security_env.py              - Adapt from infra/security_env.py
+                                        Add env_registry integration
+                                        Add reward_router integration
+
+COPIED UNCHANGED (From infra/infra_v2/):
+  📋 docker/base/env_adapter.py       - Base class (no changes)
+  📋 docker/base/env_types.py         - Standard types (no changes)
+  📋 docker/adapters/cvebench_adapter.py   - CVE-bench adapter (no changes)
+  📋 docker/adapters/vulhub_adapter.py     - Vulhub adapter (no changes)
+  📋 docker/adapters/xbow_adapter.py       - Xbow adapter (no changes)
+
+CONFIGURATION FILES:
+  ✅ pyproject.toml                   - Package configuration
+  ✅ tasks_cvebench.json              - CVE-bench task list
+  ✅ tasks_vulhub.json                - Vulhub task list
+  ✅ tasks_xbow.json                  - Xbow task list
+
+DEPENDENCIES (Add to pyproject.toml):
+  - tqdm>=4.66.0                      - Progress bars
+  - gymnasium>=0.29.0                 - RL environment interface
+  - docker>=6.0.0                     - Docker operations
+  - pyyaml>=6.0                       - Configuration parsing
+  - ray>=2.0.0                        - Distributed computing (for SkyRL)
+  - torch>=2.0.0                      - Deep learning framework
+  - transformers>=4.30.0              - LLM models
+  - peft>=0.5.0                       - LoRA fine-tuning
+
+===============================================================================
+FOCUS AREAS FOR IMPLEMENTATION
+===============================================================================
+
+Priority 1 - PARALLEL EXECUTION:
+  1. process_coordinator.py with ProcessPoolExecutor
+  2. progress_monitor.py for real-time progress visualization
+  3. ray_config.py for Ray initialization
+  4. rl_launcher.py argument parsing and coordination
+
+Priority 2 - SKYRL INTEGRATION:
+  4. skyrl_wrapper.py to bridge SkyRL
+  5. Adapt security_env.py for env_registry
+
+Priority 3 - INFRASTRUCTURE:
+  6. env_registry.py for adapter selection
+  7. reward_router.py for reward computation
+  8. checkpoint_manager.py for model management
+
+Priority 4 - TESTING:
+  9. test_trained_model.py for evaluation
+
+SKIP (Already Working):
+  ❌ Do NOT modify adapters
+  ❌ Do NOT create docker_manager
+  ❌ Do NOT create attacker_manager
+  ❌ Do NOT create bash_executor/http_executor utilities
+
+===============================================================================
+PHILOSOPHY: PRAGMATIC OVER PERFECT
+===============================================================================
+
+infra_v4 takes a PRAGMATIC approach:
+
+✅ NEW: Parallel execution, SkyRL integration, testing framework
+📋 COPY: Adapters unchanged from infra/infra_v2 (proven, working code)
+❌ SKIP: Abstraction layers that would require adapter refactoring
+
+Why?
+  1. Faster to implement (focus on new features)
+  2. Lower risk (adapters are tested and stable)
+  3. Easier to debug (all adapter logic in one place)
+  4. Can always refactor later if needed
+
+Key insight:
+  The VALUE of infra_v4 is in PARALLEL TRAINING and SKYRL INTEGRATION,
+  not in refactoring existing Docker logic.
+
+Trade-offs accepted:
+  - Some code duplication in adapters (each has _build_attacker_image)
+  - No centralized Docker management layer
+  - Less "clean" architecture
+
+Trade-offs gained:
+  - Faster implementation
+  - Proven stability
+  - Clear upgrade path from infra/infra_v2

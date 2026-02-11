@@ -1,0 +1,29 @@
+[
+  {
+    "task_type": "xbow",
+    "task_id": "xbow_challenge_1",
+    "max_steps": 30,
+    "metadata": {
+      "description": "Xbow web challenge 1",
+      "target_url": "http://target:8080"
+    }
+  },
+  {
+    "task_type": "xbow",
+    "task_id": "xbow_challenge_2",
+    "max_steps": 30,
+    "metadata": {
+      "description": "Xbow web challenge 2",
+      "target_url": "http://target:8080"
+    }
+  },
+  {
+    "task_type": "xbow",
+    "task_id": "xbow_challenge_3",
+    "max_steps": 30,
+    "metadata": {
+      "description": "Xbow CTF challenge",
+      "target_url": "http://target:9000"
+    }
+  }
+]
