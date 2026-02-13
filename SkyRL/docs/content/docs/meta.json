@@ -1,0 +1,18 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "getting-started",
+    "datasets",
+    "tutorials",
+    "examples",
+    "tinker",
+    "platforms",
+    "recipes",
+    "algorithms",
+    "configuration",
+    "checkpointing-logging",
+    "troubleshooting",
+    "skyagent"
+  ]
+}

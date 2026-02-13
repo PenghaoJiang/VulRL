@@ -1,0 +1,10 @@
+[project]
+name = "vulrl-inside-skyrl"
+version = "0.1.0"
+description = "VulRL Security Environment Training for SkyRL"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
