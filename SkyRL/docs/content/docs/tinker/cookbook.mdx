@@ -1,0 +1,92 @@
+---
+title: "Cookbook Scripts"
+---
+
+The [tinker-cookbook](https://github.com/ThinkingMachinesLab/tinker-cookbook) is a library provided by Thinking Machines with ready-to-run training recipes. This page describes how to run a few example recipes on SkyRL, and provides example curves from our experiments.
+
+## Setup
+
+Follow the [Quickstart](./quickstart) to install SkyRL and start the Tinker server. Then clone the cookbook:
+
+```bash
+git clone https://github.com/ThinkingMachinesLab/tinker-cookbook.git
+cd tinker-cookbook
+```
+
+## Recipes
+
+### Supervised Learning Loop (`sl_loop`)
+
+Fine-tunes a model on the [No Robots](https://huggingface.co/datasets/HuggingFaceH4/no_robots) dataset using cross-entropy loss with a linear learning rate decay.
+
+```bash
+TINKER_API_KEY=tml-dummy uv run --with tinker --with datasets \
+    python -m tinker_cookbook.recipes.sl_loop \
+    base_url=http://localhost:8000 \
+    model_name="Qwen/Qwen3-0.6B" \
+    log_path="/tmp/tinker-sl" \
+    train_on_what=LAST_ASSISTANT_MESSAGE
+```
+
+For full fine-tuning (no LoRA), add `lora_rank=0`:
+
+```bash
+TINKER_API_KEY=tml-dummy uv run --with tinker --with datasets \
+    python -m tinker_cookbook.recipes.sl_loop \
+    base_url=http://localhost:8000 \
+    model_name="Qwen/Qwen3-0.6B" \
+    log_path="/tmp/tinker-sl" \
+    train_on_what=LAST_ASSISTANT_MESSAGE \
+    lora_rank=0
+```
+
+TODO: add LoRA example
+
+TODO: example curve(s)
+
+### RL Training Loop (`rl_loop`)
+
+Trains a model on [GSM8K](https://huggingface.co/datasets/openai/gsm8k) math problems using GRPO-style reward centering with importance sampling.
+
+```bash
+TINKER_API_KEY=tml-dummy uv run --with tinker --with datasets --with torch \
+    python -m tinker_cookbook.recipes.rl_loop \
+    base_url=http://localhost:8000 \
+    model_name="Qwen/Qwen3-0.6B" \
+    log_path="/tmp/tinker-rl" \
+    lora_rank=0
+```
+
+TODO: add LoRA example
+
+Note: `rl_loop` uses ephemeral weight sync by default, syncing weights to the inference engine without writing to disk. For long training runs, periodic checkpoints are handled separately via `save_every`. See [Weight Sync](./architecture#weight-sync) for details on ephemeral vs persistent modes.
+
+TODO: example curve(s)
+
+### Code RL (`code_rl`)
+
+RL training for code generation tasks. Uses the same `importance_sampling` loss with code execution-based rewards.
+
+```bash
+TINKER_API_KEY=tml-dummy uv run --with tinker --with datasets --with torch \
+    python -m tinker_cookbook.recipes.code_rl.train \
+    base_url=http://localhost:8000 \
+    model_name="Qwen/Qwen3-0.6B" \
+    lora_rank=0
+```
+
+TODO: add LoRA example
+
+### Math RL (`math_rl`)
+
+RL training specifically for mathematical reasoning, with specialized reward grading.
+
+```bash
+TINKER_API_KEY=tml-dummy uv run --with tinker --with datasets --with torch \
+    python -m tinker_cookbook.recipes.math_rl.train \
+    base_url=http://localhost:8000 \
+    model_name="Qwen/Qwen3-0.6B" \
+    lora_rank=0
+```
+
+TODO: add LoRA example
