@@ -8,19 +8,116 @@ This directory contains a minimal, self-contained setup for training VulRL secur
 vulrl_inside_skyrl/
 ├── run_training.sh          # Main launcher (checks deps, builds Docker, runs training)
 ├── main_training.py         # SkyRL entry point (registers SecurityEnv)
-└── vulrl/                   # VulRL core modules (copied from infra_v4)
+└── vulrl/                   # VulRL core modules
     ├── docker/              # Docker adapters for CVE-bench, Vulhub, Xbow
-    │   ├── base/           # Base adapter classes
-    │   └── adapters/       # Task-specific adapters
+    │   ├── base/           # Base adapter classes (StandardAction, StandardObservation)
+    │   └── adapters/       # Task-specific adapters (VulhubAdapter, etc.)
     ├── env/                # SecurityEnv (Gymnasium-compliant)
-    └── reward/             # Reward calculation system
+    └── reward/             # Reward calculation system (BLEU-based)
+        ├── reward_router.py        # Routes to task-specific implementations
+        └── task_specific/
+            ├── vulhub_reward.py    # BLEU-based reward (implemented)
+            ├── cvebench_reward.py  # Placeholder
+            └── xbow_reward.py      # Placeholder
+```
+
+## Reward System
+
+### Overview
+
+VulhubReward 使用修改版 BLEU 分数衡量 Agent 的漏洞利用轨迹与 ground truth PoC 脚本之间的相似度。
+
+```
+Agent trajectory (bash/http commands)
+        ↓ 提取 action，拼接为文本
+        ↓ tokenize
+        hypothesis tokens
+              │
+              ├──→ BLEU-2 ──→ linear_map ──→ score_2 ─┐
+              │                                        ├──→ 0.7×score_2 + 0.3×score_4 = reward
+              └──→ BLEU-4 ──→ linear_map ──→ score_4 ─┘
+```
+
+### Computation Steps
+
+1. **加载 Ground Truth**: 初始化时从 `train.parquet` 加载经 Docker 验证的 PoC 脚本（`poc_script` 字段），建立 `task_id → poc_script` 查找字典
+2. **提取 Action**: 从 trajectory 中只提取 Agent 执行的命令（bash command / http request），不提取 observation
+3. **Tokenize**: 统一小写，按 `[a-z0-9_.%-]+` 正则分词，过滤单字符噪声。自然地在 `://`、`:`、`/`、`{}`、`()` 等处断开，保留路径片段、端口号、payload 关键词
+4. **计算 BLEU-2 和 BLEU-4**: 修改版 BLEU（无 Brevity Penalty），只计算 clipped n-gram precision 的几何平均
+5. **线性映射**: 各自独立映射到 [0, 1]，低于 baseline 视为噪声返回 0
+6. **加权合并**: `reward = 0.7 × mapped_BLEU2 + 0.3 × mapped_BLEU4`
+
+### Why No Brevity Penalty
+
+标准 BLEU 的 Brevity Penalty 惩罚比 reference 短的 hypothesis。但在本场景中：
+- Hypothesis 是几条 bash 命令（~28 tokens）
+- Reference 是完整 Python 脚本（~60 tokens），其中 72% 是 Python 模板代码（import、argparse、if \_\_name\_\_）
+
+长度差异是格式结构性的，不反映 Agent 质量。保留 BP 会把精确攻击的 reward 从 0.78 压到 0.19。
+
+### BLEU-2 vs BLEU-4
+
+| 指标 | 衡量内容 | 信号特点 |
+|------|---------|---------|
+| BLEU-2 | 关键 token 及局部搭配（如 `cgi-bin`+`.%2e`） | 稳定，训练初期提供方向性梯度 |
+| BLEU-4 | 连续 4-gram 匹配（如 `cgi-bin`+`.%2e`+`.%2e`+`bin`） | 稀疏，精确命中攻击路径时才出现 |
+
+权重 0.7/0.3 偏向 BLEU-2，因为训练初期 Agent 随机探索时 BLEU-4 几乎为零，BLEU-2 能更早提供引导信号。
+
+### Hyperparameters
+
+| 参数 | 值 | 说明 |
+|------|---|------|
+| `BLEU2_BASELINE` | 0.03 | BLEU-2 噪声阈值 |
+| `BLEU2_CAP` | 0.30 | BLEU-2 满分阈值 |
+| `BLEU4_BASELINE` | 0.01 | BLEU-4 噪声阈值 |
+| `BLEU4_CAP` | 0.20 | BLEU-4 满分阈值 |
+| `WEIGHT_BLEU2` | 0.7 | BLEU-2 权重 |
+| `WEIGHT_BLEU4` | 0.3 | BLEU-4 权重 |
+
+以上为初始预估值，需跑真实 sample 后根据实际分布校准。
+
+### Reward Examples
+
+| Agent 行为 | BLEU-2 | BLEU-4 | Reward |
+|-----------|--------|--------|--------|
+| 精确命中攻击路径和 payload | 0.2440 | 0.1531 | **0.78** |
+| 找对端口但路径错误 | 0.0000 | 0.0000 | **0.00** |
+| 完全随机操作（ls, whoami） | 0.0000 | 0.0000 | **0.00** |
+
+### Configuration
+
+VulhubReward 通过 SecurityEnv 的 config 接收配置：
+
+```python
+config = {
+    'task_type': 'vulhub',
+    'task_id': 'apache/CVE-2021-41773',
+    'dataset_path': '/path/to/train.parquet',  # Ground truth PoC 数据
+    ...
+}
+```
+
+如果未指定 `dataset_path`，会自动搜索以下默认路径：
+- `~/data/cve_vulhub/train.parquet`
+- `/data1/jph/VulRL/data/cve_vulhub/train.parquet`
+
+### Call Chain
+
+```
+SkyRL PPO Training Loop
+  → SecurityEnv.step()
+    → episode done?
+      → RewardRouter.compute_reward(trajectory, task_id)
+        → VulhubReward.compute(trajectory, task_id)
+          → extract actions → tokenize → BLEU-2/4 → linear map → weighted combine
+          → return reward ∈ [0, 1]
 ```
 
 ## Quick Start
 
 ### 1. Prerequisites
 
-Ensure you're in WSL2 with:
 - SkyRL installed at `~/SkyRL/skyrl-train`
 - Docker installed and running
 - Python 3.12
@@ -30,11 +127,6 @@ Ensure you're in WSL2 with:
 
 ```bash
 cd ~/SkyRL/skyrl-train/vulrl_inside_skyrl
-```
-
-Or from Windows mount:
-```bash
-cd /mnt/e/git_fork_folder/VulRL/SkyRL/skyrl-train/vulrl_inside_skyrl
 ```
 
 ### 3. Run Training
@@ -81,25 +173,6 @@ export MAX_TURNS=30
 bash run_training.sh
 ```
 
-## Model Path Configuration
-
-The script supports multiple model sources:
-
-1. **Local model** (if exists):
-   ```bash
-   MODEL_PATH=/mnt/e/models/qwen2.5-1.5b
-   ```
-
-2. **HuggingFace auto-download** (fallback):
-   ```bash
-   MODEL_NAME=Qwen/Qwen2.5-1.5B-Instruct
-   ```
-
-3. **Cache location** (auto-download target):
-   ```bash
-   ~/.cache/huggingface/hub/
-   ```
-
 ## Training Data
 
 By default, the script creates minimal test data (`test_data.parquet`) with 2 dummy CVE tasks.
@@ -139,50 +212,6 @@ Data format (Parquet):
   tensorboard --logdir ~/checkpoints/vulrl_test
   ```
 
-## Expected Output
-
-```
-============================================================
-VulRL Security Training Launcher
-============================================================
-
-Checking prerequisites...
-
-✓ Python: Python 3.12.x
-✓ Docker: Docker version xx.xx.x
-✓ Docker daemon: running
-✓ Model: /mnt/e/models/qwen2.5-1.5b (local)
-
-Checking Docker attacker image...
-
-✓ Attacker image exists: cve-attacker:latest
-
-Preparing training data...
-
-✓ Training data ready: ./test_data.parquet
-
-Setting up environment...
-
-✓ Checkpoint directory: /home/user/checkpoints/vulrl_test
-✓ PYTHONPATH: /path/to/vulrl_inside_skyrl
-
-============================================================
-Launching Training
-============================================================
-
-Configuration:
-  Model: /mnt/e/models/qwen2.5-1.5b
-  Data: ./test_data.parquet
-  Epochs: 1
-  Batch Size: 1
-  Max Turns: 10
-  Checkpoint: /home/user/checkpoints/vulrl_test
-
-============================================================
-
-[Training output...]
-```
-
 ## Troubleshooting
 
 ### Error: "Docker daemon not running"
@@ -213,31 +242,7 @@ ray stop
 bash run_training.sh
 ```
 
-## Integration with infra_v4
-
-This setup uses modules copied from `infra_v4/src/vulrl/`:
-- **Docker adapters**: CVE-bench, Vulhub, Xbow (unchanged)
-- **SecurityEnv**: Gymnasium-compliant environment
-- **Reward system**: Task-specific reward calculation
-
-To update from infra_v4:
-```bash
-# From VulRL root
-rsync -av infra_v4/src/vulrl/docker/ SkyRL/skyrl-train/vulrl_inside_skyrl/vulrl/docker/
-rsync -av infra_v4/src/vulrl/env/ SkyRL/skyrl-train/vulrl_inside_skyrl/vulrl/env/
-rsync -av infra_v4/src/vulrl/reward/ SkyRL/skyrl-train/vulrl_inside_skyrl/vulrl/reward/
-```
-
-## Next Steps
-
-1. **Test the workflow**: Run with minimal config (default)
-2. **Verify outputs**: Check checkpoints and logs
-3. **Scale up**: Increase epochs, batch size, max_turns
-4. **Add real data**: Prepare CVE-bench/Vulhub/Xbow datasets
-5. **Monitor training**: Use TensorBoard or WandB
-
 ## References
 
 - **SkyRL**: https://github.com/NovaSkyAI/SkyRL
-- **VulRL infra_v4**: `E:\git_fork_folder\VulRL\infra_v4\`
 - **Qwen Model**: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct
