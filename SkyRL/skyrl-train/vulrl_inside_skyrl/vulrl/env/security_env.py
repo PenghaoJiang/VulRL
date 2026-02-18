@@ -63,7 +63,7 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         self.adapter = EnvRegistry.create(self.config)
         
         # Create reward router
-        self.reward_router = RewardRouter(self.config.get('task_type', 'default'))
+        self.reward_router = RewardRouter(self.config.get('task_type', 'default'), config=self.config)
         
         # Progress tracking
         self.task_id = self.config.get('task_id', 'unknown')
