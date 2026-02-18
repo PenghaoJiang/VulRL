@@ -12,6 +12,9 @@
 # Core Dependencies
 # ═══════════════════════════════════════
 
+# LLM API (OpenAI-compatible SDK, used for Tinker / OpenAI / etc.)
+openai>=1.0.0
+
 # Docker SDK
 docker>=6.0.0
 
@@ -25,8 +28,9 @@ pyarrow>=12.0.0
 # YAML parsing
 pyyaml>=6.0
 
-# Image processing (for screenshot generation)
+# Image processing & OCR
 Pillow>=10.0.0
+pytesseract>=0.3.10
 
 # ═══════════════════════════════════════
 # SkyRL (install separately)

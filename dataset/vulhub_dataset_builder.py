@@ -15,6 +15,9 @@ import json
 import yaml
 import hashlib
 import base64
+import time
+import subprocess
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field, asdict
@@ -23,6 +26,7 @@ from enum import Enum
 
 import pandas as pd
 from openai import OpenAI
+import docker
 
 # OCR 相关导入（可选依赖）
 try:
@@ -108,11 +112,17 @@ class GeneratedPoC:
     dependencies: List[str]             # pip 依赖
     execution_cmd: str                  # 执行命令模板
     expected_output: str                # 预期输出描述
-    validation_status: str              # validated/needs_review/failed
-    validation_score: float             # 0.0-1.0
+    validation_status: str              # llm_passed/llm_failed/docker_verified/docker_failed/failed
     validation_notes: str               # 验证说明
     generation_model: str               # 使用的模型
     generation_timestamp: str           # 生成时间
+    llm_attempts: int = 0              # LLM 自检尝试次数
+    # Docker 实战验证字段
+    docker_verified: bool = False       # 是否通过 Docker 实战验证
+    docker_stdout: str = ""             # Docker 验证时的 stdout
+    docker_stderr: str = ""             # Docker 验证时的 stderr
+    docker_exit_code: int = -1          # PoC 退出码
+    docker_attempts: int = 0            # Docker 验证尝试次数
 
 
 @dataclass
@@ -135,14 +145,24 @@ class VulhubEntry:
 
 @dataclass
 class ValidationResult:
-    """PoC 验证结果"""
-    is_valid: bool
-    completeness_score: float           # 完整性评分
-    correctness_score: float            # 正确性评分
-    issues: List[Dict]                  # 发现的问题
+    """PoC LLM 自检结果（二元判定：正确/不正确）"""
+    is_valid: bool                      # 是否正确
+    issues: List[Dict]                  # 发现的具体问题
     missing_steps: List[str]            # 缺失的步骤
-    recommendation: str                 # accept/revise/regenerate
-    overall_assessment: str             # 总体评估
+    summary: str                        # 一句话总结
+
+
+@dataclass
+class DockerVerificationResult:
+    """Docker 实战验证结果"""
+    success: bool                       # 最终判定
+    exit_code: int                      # PoC 退出码
+    stdout: str                         # 标准输出
+    stderr: str                         # 标准错误
+    indicators_matched: List[str]       # 匹配到的 success_indicators
+    execution_time: float               # PoC 执行耗时
+    environment_ready: bool             # Docker 环境是否成功启动
+    error_message: str                  # 错误信息（如果有）
 
 
 # ============================================================================
@@ -376,6 +396,51 @@ class ContentParser:
 
 
 # ============================================================================
+# JSON 容错解析
+# ============================================================================
+
+# Tinker 默认配置
+TINKER_BASE_URL = "https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1"
+TINKER_DEFAULT_MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+
+
+def parse_json_response(text: str) -> Dict:
+    """
+    容错解析 LLM 返回的 JSON。
+    处理常见情况：
+      1. 纯 JSON
+      2. ```json ... ``` 包裹
+      3. 前后有解释文字
+    """
+    text = text.strip()
+
+    # 尝试 1：直接解析
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # 尝试 2：提取 ```json ... ``` 代码块
+    match = re.search(r'```(?:json)?\s*\n?(.*?)```', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # 尝试 3：找到第一个 { 和最后一个 } 之间的内容
+    first_brace = text.find('{')
+    last_brace = text.rfind('}')
+    if first_brace != -1 and last_brace > first_brace:
+        try:
+            return json.loads(text[first_brace:last_brace + 1])
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"Failed to parse JSON from LLM response: {text[:200]}...")
+
+
+# ============================================================================
 # PoC 生成器
 # ============================================================================
 
@@ -430,7 +495,7 @@ Analyze ALL provided materials and extract comprehensive vulnerability informati
     }}
   ],
   "success_indicators": ["string (observable evidence of success)"],
-  "required_dependencies": ["string (Python packages needed, e.g., requests, pwntools)"],
+  "required_dependencies": ["string (pip package names ONLY, e.g., \"requests\", \"pwntools\". Do NOT add descriptions or parentheses. Do NOT include standard library modules like os, sys, json, re, time, argparse, hashlib, base64, urllib)"],
   "difficulty": "string (easy/medium/hard)"
 }}
 
@@ -550,50 +615,46 @@ Start with #!/usr/bin/env python3"""
 {generated_poc}
 ```
 
-## Validation Criteria
+## Your Task
+Check whether this PoC script is CORRECT and can exploit the vulnerability as described.
 
-1. **Completeness** (0.0-1.0)
-   - Does it implement ALL required exploitation steps?
-   - Are all endpoints/payloads correct?
-   - Are all required headers/parameters included?
+Specifically check:
+1. Are the exploitation steps complete? (endpoints, payloads, parameters, headers)
+2. Are HTTP methods, URL paths, and payload formats correct?
+3. Is the script syntactically valid and executable?
+4. Are the steps in the correct order with proper dependencies?
 
-2. **Correctness** (0.0-1.0)
-   - Are HTTP methods correct?
-   - Are payloads properly formatted?
-   - Is URL encoding handled where needed?
-   - Are special characters escaped properly?
+## IMPORTANT: Issue Reporting Rules
+If you find issues, you MUST be SPECIFIC and CONCRETE:
+- BAD: "payload construction has flaws" (vague, useless)
+- GOOD: "Line `payload = f'{{{{cmd}}}}'` should be `payload = f'O:1:\"S\":1:{{{{s:4:\"cmd\";s:{{{{len(cmd)}}}}:\"{{{{cmd}}}}\";}}}}' ` because the vulnerability requires PHP serialized object format"
+- BAD: "output verification is unreliable" (vague)
+- GOOD: "Line `if 'success' in resp.text` should check for the command output like `if 'uid=0' in resp.text` because the exploit runs `id` command"
 
-3. **Executability**
-   - Is the script syntactically correct?
-   - Are all imports available?
-   - Is error handling present?
-
-4. **Logic Flow**
-   - Are steps in correct order?
-   - Are dependencies between steps handled?
-   - Does it check success conditions?
+Each issue must include: the exact code that is wrong, why it is wrong, and the exact fix.
 
 ## Output as JSON:
 {{
-  "is_valid": boolean,
-  "completeness_score": float,
-  "correctness_score": float,
+  "is_valid": true/false,
   "issues": [
     {{
-      "severity": "critical/major/minor",
-      "description": "string",
-      "line_hint": "string (code snippet with issue)",
-      "suggested_fix": "string"
+      "wrong_code": "string (the exact line or snippet that is wrong)",
+      "reason": "string (why it is wrong, with technical detail)",
+      "fix": "string (the exact corrected code)"
     }}
   ],
-  "missing_steps": ["string"],
-  "overall_assessment": "string (brief summary)",
-  "recommendation": "accept/revise/regenerate"
-}}"""
+  "missing_steps": ["string (specific step that is missing, e.g. 'Must send POST to /login first to get session cookie before exploiting /vuln endpoint')"],
+  "summary": "string (one sentence: why it is correct or what is the most critical problem)"
+}}
 
-    def __init__(self, api_key: str = None, model: str = "gpt-4o"):
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
-        self.model = model
+If the script is correct, set is_valid=true and leave issues and missing_steps as empty arrays."""
+
+    def __init__(self, api_key: str = None, model: str = None,
+                 api_base: str = None):
+        api_key = api_key or os.getenv("TINKER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        api_base = api_base or os.getenv("TINKER_API_BASE") or TINKER_BASE_URL
+        self.client = OpenAI(api_key=api_key, base_url=api_base)
+        self.model = model or TINKER_DEFAULT_MODEL
 
     def analyze_readme(self, entry: VulhubEntry) -> Dict:
         """分析 README 内容，提取结构化信息"""
@@ -631,14 +692,13 @@ Start with #!/usr/bin/env python3"""
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a security expert. Output only valid JSON."},
+                    {"role": "system", "content": "You are a security expert. You MUST output ONLY valid JSON, no explanations, no markdown, no extra text before or after the JSON object."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
-                response_format={"type": "json_object"}
+                temperature=0.1
             )
 
-            return json.loads(response.choices[0].message.content)
+            return parse_json_response(response.choices[0].message.content)
         except Exception as e:
             print(f"  Warning: README analysis failed: {e}")
             return {
@@ -720,7 +780,6 @@ Start with #!/usr/bin/env python3"""
                 execution_cmd=f"python3 poc.py --host {{host}} --port {entry.docker_config.primary_port}",
                 expected_output=', '.join(analysis.get('success_indicators', [])),
                 validation_status="pending",
-                validation_score=0.0,
                 validation_notes="",
                 generation_model=self.model,
                 generation_timestamp=datetime.now().isoformat()
@@ -735,7 +794,6 @@ Start with #!/usr/bin/env python3"""
                 execution_cmd="",
                 expected_output="",
                 validation_status="failed",
-                validation_score=0.0,
                 validation_notes=str(e),
                 generation_model=self.model,
                 generation_timestamp=datetime.now().isoformat()
@@ -747,26 +805,25 @@ Start with #!/usr/bin/env python3"""
 # ============================================================================
 
 class PoCValidator:
-    """PoC 脚本验证器"""
+    """PoC 脚本验证器（LLM 自检：二元判定）"""
 
     MAX_RETRIES = 3
-    VALIDATION_THRESHOLD = 0.7
 
-    def __init__(self, api_key: str = None, model: str = "gpt-4o"):
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
-        self.model = model
+    def __init__(self, api_key: str = None, model: str = None,
+                 api_base: str = None):
+        api_key = api_key or os.getenv("TINKER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        api_base = api_base or os.getenv("TINKER_API_BASE") or TINKER_BASE_URL
+        self.client = OpenAI(api_key=api_key, base_url=api_base)
+        self.model = model or TINKER_DEFAULT_MODEL
 
     def validate(self, entry: VulhubEntry, analysis: Dict) -> ValidationResult:
-        """验证生成的 PoC"""
+        """验证生成的 PoC，返回二元判定（正确/不正确）"""
         if not entry.poc_script or entry.poc_script.script == "# Generation failed":
             return ValidationResult(
                 is_valid=False,
-                completeness_score=0.0,
-                correctness_score=0.0,
-                issues=[{"severity": "critical", "description": "No PoC script generated"}],
+                issues=[{"description": "No PoC script generated", "suggested_fix": "Regenerate"}],
                 missing_steps=[],
-                recommendation="regenerate",
-                overall_assessment="No valid PoC script to validate"
+                summary="No valid PoC script to validate"
             )
 
         prompt = PoCGenerator.POC_VALIDATION_PROMPT.format(
@@ -779,56 +836,443 @@ class PoCValidator:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a security expert reviewing exploit code. Output only valid JSON."},
+                    {"role": "system", "content": "You are a security expert reviewing exploit code. You MUST output ONLY valid JSON, no explanations, no markdown, no extra text before or after the JSON object."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
-                response_format={"type": "json_object"}
+                temperature=0.1
             )
 
-            result = json.loads(response.choices[0].message.content)
+            result = parse_json_response(response.choices[0].message.content)
 
             return ValidationResult(
                 is_valid=result.get('is_valid', False),
-                completeness_score=result.get('completeness_score', 0.0),
-                correctness_score=result.get('correctness_score', 0.0),
                 issues=result.get('issues', []),
                 missing_steps=result.get('missing_steps', []),
-                recommendation=result.get('recommendation', 'regenerate'),
-                overall_assessment=result.get('overall_assessment', '')
+                summary=result.get('summary', '')
             )
 
         except Exception as e:
-            print(f"  Warning: Validation failed: {e}")
+            print(f"  Warning: LLM validation failed: {e}")
             return ValidationResult(
                 is_valid=False,
-                completeness_score=0.0,
-                correctness_score=0.0,
-                issues=[{"severity": "critical", "description": f"Validation error: {e}"}],
+                issues=[{"description": f"Validation error: {e}", "suggested_fix": "Retry"}],
                 missing_steps=[],
-                recommendation="regenerate",
-                overall_assessment=f"Validation failed: {e}"
+                summary=f"LLM validation error: {e}"
             )
 
     def build_feedback(self, validation: ValidationResult) -> str:
-        """构建反馈信息用于重新生成"""
+        """将自检发现的问题格式化为反馈文本"""
         feedback_parts = []
 
         if validation.issues:
-            feedback_parts.append("Issues found:")
-            for issue in validation.issues:
-                feedback_parts.append(f"- [{issue.get('severity', 'unknown')}] {issue.get('description', '')}")
+            feedback_parts.append("## Issues found by LLM self-check (MUST FIX ALL):\n")
+            for i, issue in enumerate(validation.issues, 1):
+                feedback_parts.append(f"### Issue {i}:")
+                if issue.get('wrong_code'):
+                    feedback_parts.append(f"Wrong code: `{issue['wrong_code']}`")
+                if issue.get('reason'):
+                    feedback_parts.append(f"Reason: {issue['reason']}")
+                if issue.get('fix'):
+                    feedback_parts.append(f"Fix: `{issue['fix']}`")
+                # 兼容旧格式
+                if issue.get('description'):
+                    feedback_parts.append(f"Problem: {issue['description']}")
                 if issue.get('suggested_fix'):
-                    feedback_parts.append(f"  Suggested fix: {issue.get('suggested_fix')}")
+                    feedback_parts.append(f"Fix: {issue['suggested_fix']}")
+                feedback_parts.append("")
 
         if validation.missing_steps:
-            feedback_parts.append("\nMissing steps:")
+            feedback_parts.append("## Missing steps:")
             for step in validation.missing_steps:
                 feedback_parts.append(f"- {step}")
 
-        feedback_parts.append(f"\nOverall: {validation.overall_assessment}")
+        feedback_parts.append(f"\nSummary: {validation.summary}")
 
         return '\n'.join(feedback_parts)
+
+
+# ============================================================================
+# Docker PoC 验证器
+# ============================================================================
+
+class DockerPoCVerifier:
+    """Docker 实战 PoC 验证器 - 在真实漏洞环境中执行 PoC"""
+
+    DOCKER_MAX_RETRIES = 3
+    ATTACKER_IMAGE = "cve-attacker:latest"
+
+    def __init__(self, poc_timeout: int = 60, service_wait: int = 60):
+        self.poc_timeout = poc_timeout
+        self.service_wait = service_wait
+        self.docker_client = docker.from_env()
+        self.compose_cmd = self._detect_compose_command()
+
+    def _detect_compose_command(self) -> List[str]:
+        """检测可用的 docker compose 命令"""
+        # 优先使用 docker compose (v2 plugin)
+        try:
+            subprocess.run(
+                ["docker", "compose", "version"],
+                capture_output=True, check=True, timeout=10
+            )
+            return ["docker", "compose"]
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        # 回退到 docker-compose (v1 standalone)
+        if shutil.which("docker-compose"):
+            return ["docker-compose"]
+        raise RuntimeError("Neither 'docker compose' nor 'docker-compose' found")
+
+    def verify(self, entry: VulhubEntry, poc_script: str, analysis: Dict) -> DockerVerificationResult:
+        """
+        主验证方法：启动 Docker 环境 → 执行 PoC → 分析结果 → 清理
+        """
+        compose_path = Path(entry.docker_config.compose_path)
+        sanitized_id = re.sub(r'[^a-z0-9]', '', entry.cve_id.lower())
+        project_name = f"vulpoc-{sanitized_id}-{int(time.time()) % 100000}"
+
+        target_host = entry.docker_config.primary_service
+        target_port = entry.docker_config.primary_port
+        success_indicators = analysis.get("success_indicators", [])
+        poc_deps = analysis.get("required_dependencies", [])
+
+        attacker = None
+        network_name = None
+
+        try:
+            # Step 1: 启动漏洞环境
+            print(f"      [Docker] Starting environment ({compose_path.parent.name})...")
+            network_name = self._start_environment(compose_path, project_name)
+            if not network_name:
+                return DockerVerificationResult(
+                    success=False, exit_code=-1, stdout="", stderr="",
+                    indicators_matched=[], execution_time=0.0,
+                    environment_ready=False,
+                    error_message="Failed to start Docker environment"
+                )
+
+            # Step 2: 创建 attacker 容器
+            print(f"      [Docker] Creating attacker container...")
+            attacker = self._create_attacker(network_name, poc_deps, project_name)
+
+            # Step 3: 等待目标服务就绪
+            print(f"      [Docker] Waiting for {target_host}:{target_port}...")
+            service_ready = self._wait_for_service(attacker, target_host, target_port)
+            if not service_ready:
+                return DockerVerificationResult(
+                    success=False, exit_code=-1, stdout="", stderr="",
+                    indicators_matched=[], execution_time=0.0,
+                    environment_ready=False,
+                    error_message=f"Service {target_host}:{target_port} not ready after {self.service_wait}s"
+                )
+
+            # Step 4: 执行 PoC
+            print(f"      [Docker] Executing PoC...")
+            start_time = time.time()
+            exit_code, stdout, stderr = self._execute_poc(
+                attacker, poc_script, target_host, target_port
+            )
+            execution_time = time.time() - start_time
+
+            # Step 5: 分析结果
+            is_success, matched = self._analyze_results(
+                exit_code, stdout, stderr, success_indicators
+            )
+
+            status_str = "SUCCESS" if is_success else "FAILED"
+            print(f"      [Docker] Result: {status_str} (exit_code={exit_code}, "
+                  f"matched={len(matched)}, time={execution_time:.1f}s)")
+
+            return DockerVerificationResult(
+                success=is_success,
+                exit_code=exit_code,
+                stdout=stdout[-4000:],   # 保留更多输出供反馈
+                stderr=stderr[-4000:],   # 保留完整 traceback
+                indicators_matched=matched,
+                execution_time=execution_time,
+                environment_ready=True,
+                error_message="" if is_success else f"PoC exited with code {exit_code}"
+            )
+
+        except Exception as e:
+            print(f"      [Docker] Error: {e}")
+            return DockerVerificationResult(
+                success=False, exit_code=-1, stdout="", stderr=str(e),
+                indicators_matched=[], execution_time=0.0,
+                environment_ready=False,
+                error_message=str(e)
+            )
+        finally:
+            self._cleanup(project_name, compose_path, attacker)
+
+    def _start_environment(self, compose_path: Path, project_name: str) -> Optional[str]:
+        """根据 sample 的 docker-compose.yml 启动环境，返回网络名"""
+        compose_dir = compose_path.parent
+        try:
+            cmd = self.compose_cmd + [
+                "-f", str(compose_path),
+                "-p", project_name,
+                "up", "-d"
+            ]
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=120, cwd=str(compose_dir)
+            )
+            if result.returncode != 0:
+                print(f"      [Docker] compose up failed: {result.stderr[:500]}")
+                return None
+
+            # 获取网络名：project_name + _default
+            network_name = f"{project_name}_default"
+
+            # 验证网络存在
+            try:
+                self.docker_client.networks.get(network_name)
+            except docker.errors.NotFound:
+                # 尝试列出相关网络
+                networks = self.docker_client.networks.list(
+                    names=[f"{project_name}"]
+                )
+                if networks:
+                    network_name = networks[0].name
+                else:
+                    print(f"      [Docker] Network not found, using default name")
+
+            return network_name
+
+        except subprocess.TimeoutExpired:
+            print(f"      [Docker] compose up timed out (120s)")
+            return None
+        except Exception as e:
+            print(f"      [Docker] Failed to start environment: {e}")
+            return None
+
+    def _create_attacker(self, network_name: str, poc_deps: List[str],
+                         project_name: str) -> docker.models.containers.Container:
+        """创建 attacker 容器并挂到同一网络"""
+        container_name = f"{project_name}-attacker"
+
+        # 确保 attacker 镜像存在，否则使用 python:3.11-slim
+        try:
+            self.docker_client.images.get(self.ATTACKER_IMAGE)
+            image = self.ATTACKER_IMAGE
+        except docker.errors.ImageNotFound:
+            image = "python:3.11-slim"
+            # 确保 python 镜像存在
+            try:
+                self.docker_client.images.get(image)
+            except docker.errors.ImageNotFound:
+                print(f"      [Docker] Pulling {image}...")
+                self.docker_client.images.pull(image)
+
+        attacker = self.docker_client.containers.run(
+            image,
+            command="sleep 3600",
+            name=container_name,
+            network=network_name,
+            detach=True,
+            remove=False
+        )
+
+        # 安装 PoC 依赖
+        # 标准库模块，不需要 pip install
+        stdlib = {"argparse", "os", "sys", "json", "re", "time", "hashlib",
+                  "base64", "urllib", "socket", "struct", "io", "string",
+                  "collections", "itertools", "functools", "pathlib",
+                  "subprocess", "threading", "http", "html", "xml", "csv"}
+        # 清洗依赖名：只保留合法 pip 包名（字母、数字、-、_、.）
+        cleaned_deps = []
+        for dep in poc_deps:
+            # 取第一个单词（去掉括号注释等）
+            dep_name = dep.split("(")[0].split("#")[0].split(",")[0].strip()
+            # 只保留合法字符
+            dep_name = re.sub(r'[^a-zA-Z0-9\-_.]', '', dep_name)
+            if dep_name and dep_name.lower() not in stdlib:
+                cleaned_deps.append(dep_name)
+        all_deps = list(set(["requests"] + cleaned_deps))
+        if all_deps:
+            dep_str = " ".join(all_deps)
+            exec_result = attacker.exec_run(
+                ["pip", "install", "--quiet", "--disable-pip-version-check"] + all_deps
+            )
+            if exec_result.exit_code != 0:
+                print(f"      [Docker] pip install warning: {exec_result.output.decode('utf-8', errors='replace')[:200]}")
+
+        return attacker
+
+    def _wait_for_service(self, attacker, target_host: str, target_port: int) -> bool:
+        """在 attacker 容器内等待目标服务就绪，使用指数退避"""
+        wait_intervals = [1, 2, 4, 8, 8, 8, 8, 8, 8]  # 总计约 55 秒
+        elapsed = 0
+
+        for interval in wait_intervals:
+            if elapsed >= self.service_wait:
+                break
+            # 使用 python 进行端口检测（比 curl 更可靠，因为目标不一定是 HTTP）
+            check_cmd = (
+                f"python3 -c \""
+                f"import socket; s=socket.socket(); s.settimeout(3); "
+                f"s.connect(('{target_host}', {target_port})); "
+                f"s.close(); print('OK')\""
+            )
+            result = attacker.exec_run(["sh", "-c", check_cmd])
+            if result.exit_code == 0:
+                return True
+            time.sleep(interval)
+            elapsed += interval
+
+        return False
+
+    def _execute_poc(self, attacker, poc_script: str,
+                     target_host: str, target_port: int) -> Tuple[int, str, str]:
+        """在 attacker 容器内执行 PoC 脚本"""
+        # 将脚本写入容器
+        import tarfile
+        import io
+
+        # 创建 tar 流以 put_archive 方式写入
+        tar_stream = io.BytesIO()
+        with tarfile.open(fileobj=tar_stream, mode='w') as tar:
+            script_bytes = poc_script.encode('utf-8')
+            info = tarfile.TarInfo(name='poc.py')
+            info.size = len(script_bytes)
+            tar.addfile(info, io.BytesIO(script_bytes))
+        tar_stream.seek(0)
+
+        attacker.put_archive('/tmp', tar_stream)
+
+        # 执行 PoC（用 timeout 命令防止挂起）
+        exec_result = attacker.exec_run(
+            ["timeout", str(self.poc_timeout),
+             "python3", "/tmp/poc.py", "--host", target_host, "--port", str(target_port)],
+            demux=True
+        )
+
+        exit_code = exec_result.exit_code
+        stdout_raw, stderr_raw = exec_result.output if isinstance(exec_result.output, tuple) else (exec_result.output, b"")
+        stdout = (stdout_raw or b"").decode('utf-8', errors='replace')
+        stderr = (stderr_raw or b"").decode('utf-8', errors='replace')
+
+        return exit_code, stdout, stderr
+
+    def _analyze_results(self, exit_code: int, stdout: str, stderr: str,
+                         success_indicators: List[str]) -> Tuple[bool, List[str]]:
+        """
+        三级判定逻辑：
+          Level 1: exit_code == 0
+          Level 2: stdout 含 "[+] Exploitation successful!" 或 "[+]"
+          Level 3: stdout 匹配 success_indicators 中的关键词
+        """
+        matched = []
+
+        # Level 1: 退出码
+        if exit_code != 0:
+            return False, matched
+
+        # Level 2: 脚本自报成功
+        has_success_marker = False
+        if "[+] Exploitation successful!" in stdout:
+            has_success_marker = True
+            matched.append("[+] Exploitation successful!")
+        elif "[+]" in stdout:
+            has_success_marker = True
+            matched.append("[+] marker found")
+
+        # Level 3: 匹配 success_indicators
+        combined_output = stdout + stderr
+        for indicator in success_indicators:
+            if indicator.lower() in combined_output.lower():
+                matched.append(indicator)
+
+        # 判定：exit_code==0 且 (有成功标记 或 有 indicator 匹配)
+        is_success = has_success_marker or len(matched) > 0
+        return is_success, matched
+
+    def _cleanup(self, project_name: str, compose_path: Path,
+                 attacker=None):
+        """清理 attacker 容器和 Docker 环境"""
+        # 清理 attacker 容器
+        if attacker:
+            try:
+                attacker.stop(timeout=5)
+                attacker.remove(force=True)
+            except Exception:
+                pass
+
+        # compose down
+        try:
+            cmd = self.compose_cmd + [
+                "-f", str(compose_path),
+                "-p", project_name,
+                "down", "-v", "--remove-orphans"
+            ]
+            subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=30, cwd=str(compose_path.parent)
+            )
+        except Exception:
+            pass
+
+    def build_feedback(self, result: DockerVerificationResult) -> str:
+        """将 Docker 验证结果格式化为反馈文本，供 PoCGenerator 重新生成"""
+        parts = [
+            "## Docker Execution Feedback (REAL environment test - THIS IS THE GROUND TRUTH)",
+            f"Exit code: {result.exit_code}",
+            f"Environment ready: {result.environment_ready}",
+            f"Execution time: {result.execution_time:.1f}s",
+        ]
+
+        if result.error_message:
+            parts.append(f"Error: {result.error_message}")
+
+        # stdout 完整输出
+        if result.stdout:
+            parts.append(f"\n### stdout (complete):\n```\n{result.stdout}\n```")
+        else:
+            parts.append("\n### stdout: (empty - the script produced no output)")
+
+        # stderr 完整输出（关键：包含 traceback）
+        if result.stderr:
+            parts.append(f"\n### stderr (complete - READ THIS CAREFULLY for errors and tracebacks):\n```\n{result.stderr}\n```")
+        else:
+            parts.append("\n### stderr: (empty)")
+
+        if result.indicators_matched:
+            parts.append(f"\nMatched indicators: {result.indicators_matched}")
+        else:
+            parts.append("\nNo success indicators matched in output.")
+
+        # 根据 exit_code 和执行时间给出针对性提示
+        hints = []
+        if result.execution_time < 0.5:
+            hints.append("- Script finished in <0.5s, likely crashed on startup (import error, syntax error, or immediate exception)")
+        if result.exit_code == 1:
+            hints.append("- Exit code 1: Python unhandled exception. Check stderr for the full traceback")
+        if result.exit_code == 2:
+            hints.append("- Exit code 2: Likely argparse error (wrong arguments) or syntax error")
+        if result.exit_code == 124:
+            hints.append("- Exit code 124: Script timed out. The exploit may be waiting for a response that never comes (wrong port? wrong endpoint?)")
+        if not result.stdout and not result.stderr:
+            hints.append("- No output at all: script may have been killed or failed to start")
+
+        if hints:
+            parts.append("\n### Diagnostic hints:\n" + "\n".join(hints))
+
+        parts.append(
+            "\n### Instructions:\n"
+            "Fix the PoC based on the REAL execution output above. "
+            "Pay close attention to stderr tracebacks - they show exactly where and why the script failed. "
+            "The target service is accessible at the host:port passed via --host and --port arguments."
+        )
+
+        return "\n".join(parts)
+
+    def save_verified_poc(self, poc_script: str, cve_path: Path) -> Path:
+        """将通过验证的 PoC 保存到 sample 目录"""
+        output_path = cve_path / "poc_verified.py"
+        output_path.write_text(poc_script, encoding='utf-8')
+        print(f"      [Docker] Saved verified PoC to: {output_path}")
+        return output_path
 
 
 # ============================================================================
@@ -903,21 +1347,37 @@ class VulhubScanner:
 class DatasetBuilder:
     """数据集构建器"""
 
-    def __init__(self, output_dir: str, api_key: str = None):
+    def __init__(self, output_dir: str, api_key: str = None,
+                 api_base: str = None, no_docker: bool = False):
         self.output_dir = Path(output_dir).expanduser()
         self.output_dir.mkdir(parents=True, exist_ok=True)
-
-        api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.no_docker = no_docker
 
         self.ocr_processor = OCRProcessor()
         self.content_parser = ContentParser(self.ocr_processor)
-        self.poc_generator = PoCGenerator(api_key)
-        self.poc_validator = PoCValidator(api_key)
+        self.poc_generator = PoCGenerator(api_key=api_key, api_base=api_base)
+        self.poc_validator = PoCValidator(api_key=api_key, api_base=api_base)
 
-    def process_cve(self, cve_path: Path, scanner: VulhubScanner) -> Optional[VulhubEntry]:
+        # Docker 验证器（按需初始化）
+        self.docker_verifier = None
+        if not no_docker:
+            try:
+                self.docker_verifier = DockerPoCVerifier()
+                print("Docker verifier initialized successfully")
+            except Exception as e:
+                print(f"Warning: Docker verifier unavailable: {e}")
+                print("Falling back to LLM-only validation")
+
+    def process_cve(self, cve_path: Path, scanner: VulhubScanner,
+                    skip_verified: bool = False) -> Optional[VulhubEntry]:
         """处理单个 CVE"""
         cve_id = scanner.extract_cve_id(cve_path)
         print(f"  Processing: {cve_id}")
+
+        # --skip-verified: 跳过已有 poc_verified.py 的 sample
+        if skip_verified and (cve_path / "poc_verified.py").exists():
+            print(f"    Skipped: poc_verified.py already exists")
+            return None
 
         # 查找文件
         readme_path = scanner.find_readme(cve_path)
@@ -977,49 +1437,80 @@ class DatasetBuilder:
         print(f"    Type: {entry.readme_analysis.vulnerability_type}")
         print(f"    Service: {entry.readme_analysis.service_name}")
 
-        # 生成 PoC（带验证循环）
+        # === Step 1: 生成初始 PoC ===
         print(f"    Generating PoC...")
-        feedback = None
+        poc = self.poc_generator.generate_poc(entry, analysis)
 
-        for attempt in range(PoCValidator.MAX_RETRIES):
-            entry.poc_script = self.poc_generator.generate_poc(entry, analysis, feedback)
+        if poc.validation_status == "failed":
+            print(f"    PoC generation failed")
+            entry.poc_script = poc
+            return entry
 
-            if entry.poc_script.validation_status == "failed":
-                print(f"    PoC generation failed")
-                break
+        # === Step 2: LLM 自检循环（二元：正确/不正确） ===
+        print(f"    LLM self-check...")
+        entry.poc_script = poc
 
-            # 验证
-            print(f"    Validating (attempt {attempt + 1}/{PoCValidator.MAX_RETRIES})...")
+        for llm_attempt in range(PoCValidator.MAX_RETRIES):
             validation = self.poc_validator.validate(entry, analysis)
+            entry.poc_script.llm_attempts = llm_attempt + 1
 
-            avg_score = (validation.completeness_score + validation.correctness_score) / 2
-            entry.poc_script.validation_score = avg_score
-
-            if validation.is_valid and avg_score >= PoCValidator.VALIDATION_THRESHOLD:
-                entry.poc_script.validation_status = "validated"
-                entry.poc_script.validation_notes = validation.overall_assessment
-                print(f"    Validated! Score: {avg_score:.2f}")
+            if validation.is_valid:
+                entry.poc_script.validation_status = "llm_passed"
+                entry.poc_script.validation_notes = validation.summary
+                print(f"    LLM passed (attempt {llm_attempt + 1})")
                 break
 
-            if validation.recommendation == "accept":
-                entry.poc_script.validation_status = "validated"
-                entry.poc_script.validation_notes = validation.overall_assessment
-                print(f"    Accepted with score: {avg_score:.2f}")
-                break
-
-            # 需要重新生成
+            # LLM 发现问题 → 用反馈修正后再检
+            print(f"    LLM found issues (attempt {llm_attempt + 1}): {validation.summary}")
             feedback = self.poc_validator.build_feedback(validation)
-            print(f"    Score: {avg_score:.2f}, retrying...")
-
+            poc = self.poc_generator.generate_poc(entry, analysis, feedback)
+            entry.poc_script = poc
         else:
-            # 达到最大重试次数
-            entry.poc_script.validation_status = "needs_review"
-            entry.poc_script.validation_notes = f"Failed after {PoCValidator.MAX_RETRIES} attempts"
-            print(f"    Marked for review")
+            # LLM 自检多次仍有问题，标记但仍继续送 Docker 验证
+            entry.poc_script.validation_status = "llm_failed"
+            entry.poc_script.validation_notes = f"LLM self-check failed after {PoCValidator.MAX_RETRIES} attempts: {validation.summary}"
+            print(f"    LLM self-check exhausted, proceeding to Docker anyway")
+
+        # === Step 3-5: Docker 实战验证循环（最终判定） ===
+        if self.docker_verifier and entry.poc_script.validation_status != "failed":
+            print(f"    Docker verification...")
+            docker_verified = False
+
+            for docker_attempt in range(DockerPoCVerifier.DOCKER_MAX_RETRIES):
+                print(f"    Docker attempt {docker_attempt + 1}/{DockerPoCVerifier.DOCKER_MAX_RETRIES}...")
+                docker_result = self.docker_verifier.verify(
+                    entry, entry.poc_script.script, analysis
+                )
+
+                if docker_result.success:
+                    docker_verified = True
+                    entry.poc_script.docker_verified = True
+                    entry.poc_script.validation_status = "docker_verified"
+                    entry.poc_script.docker_stdout = docker_result.stdout
+                    entry.poc_script.docker_stderr = docker_result.stderr
+                    entry.poc_script.docker_exit_code = docker_result.exit_code
+                    entry.poc_script.docker_attempts = docker_attempt + 1
+                    print(f"    Docker VERIFIED! (attempt {docker_attempt + 1})")
+                    break
+
+                # 用真实错误输出重新生成
+                docker_feedback = self.docker_verifier.build_feedback(docker_result)
+                print(f"    Docker failed, regenerating with real error feedback...")
+                poc = self.poc_generator.generate_poc(entry, analysis, docker_feedback)
+                entry.poc_script = poc
+
+            # === Step 6: 保存验证通过的 PoC 到 sample 目录 ===
+            if docker_verified:
+                self.docker_verifier.save_verified_poc(entry.poc_script.script, cve_path)
+            else:
+                entry.poc_script.validation_status = "docker_failed"
+                entry.poc_script.docker_attempts = DockerPoCVerifier.DOCKER_MAX_RETRIES
+                print(f"    Docker verification failed after {DockerPoCVerifier.DOCKER_MAX_RETRIES} attempts")
 
         return entry
 
-    def build(self, scanner: VulhubScanner, limit: int = None) -> Path:
+    def build(self, scanner: VulhubScanner, limit: int = None,
+              skip_verified: bool = False) -> Path:
         """构建数据集"""
         cve_dirs = scanner.scan_all()
         print(f"Found {len(cve_dirs)} valid CVE directories")
@@ -1035,7 +1526,8 @@ class DatasetBuilder:
             print(f"\n[{i+1}/{len(cve_dirs)}]", end="")
 
             try:
-                entry = self.process_cve(cve_path, scanner)
+                entry = self.process_cve(cve_path, scanner,
+                                         skip_verified=skip_verified)
                 if entry:
                     entries.append(entry)
             except Exception as e:
@@ -1090,8 +1582,15 @@ class DatasetBuilder:
 
                 # 验证元数据
                 "validation_status": entry.poc_script.validation_status if entry.poc_script else "failed",
-                "validation_score": entry.poc_script.validation_score if entry.poc_script else 0.0,
                 "validation_notes": entry.poc_script.validation_notes if entry.poc_script else "",
+                "llm_attempts": entry.poc_script.llm_attempts if entry.poc_script else 0,
+
+                # Docker 验证元数据
+                "docker_verified": entry.poc_script.docker_verified if entry.poc_script else False,
+                "docker_stdout": entry.poc_script.docker_stdout if entry.poc_script else "",
+                "docker_stderr": entry.poc_script.docker_stderr if entry.poc_script else "",
+                "docker_exit_code": entry.poc_script.docker_exit_code if entry.poc_script else -1,
+                "docker_attempts": entry.poc_script.docker_attempts if entry.poc_script else 0,
 
                 # 生成元数据
                 "generation_model": entry.poc_script.generation_model if entry.poc_script else "",
@@ -1115,13 +1614,17 @@ class DatasetBuilder:
 
         # 统计信息
         if records:
-            validated = sum(1 for r in records if r['validation_status'] == 'validated')
-            needs_review = sum(1 for r in records if r['validation_status'] == 'needs_review')
-            failed_count = sum(1 for r in records if r['validation_status'] == 'failed')
+            llm_passed = sum(1 for r in records if r['validation_status'] == 'llm_passed')
+            llm_failed = sum(1 for r in records if r['validation_status'] == 'llm_failed')
+            docker_verified = sum(1 for r in records if r['docker_verified'])
+            docker_failed = sum(1 for r in records if r['validation_status'] == 'docker_failed')
+            gen_failed = sum(1 for r in records if r['validation_status'] == 'failed')
             print(f"\nValidation stats:")
-            print(f"  Validated: {validated}")
-            print(f"  Needs review: {needs_review}")
-            print(f"  Failed: {failed_count}")
+            print(f"  LLM self-check passed: {llm_passed}")
+            print(f"  LLM self-check failed: {llm_failed}")
+            print(f"  Docker verified: {docker_verified}")
+            print(f"  Docker failed: {docker_failed}")
+            print(f"  Generation failed: {gen_failed}")
 
         return output_path
 
@@ -1139,14 +1642,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process all CVEs
+  # Process all CVEs with Tinker + Qwen3 (default)
   python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ~/data/cve_vulhub
 
   # Process first 10 CVEs (for testing)
   python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ~/data/cve_vulhub --limit 10
 
-  # Use a specific model
-  python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ~/data/cve_vulhub --model gpt-4o-mini
+  # LLM-only mode (no Docker verification)
+  python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ~/data/cve_vulhub --no-docker
+
+  # Incremental run: skip already verified samples
+  python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ~/data/cve_vulhub --skip-verified
+
+  # Use a different OpenAI-compatible API
+  python vulhub_dataset_builder.py --api_base https://api.openai.com/v1 --model gpt-4o --api_key sk-xxx
 """
     )
     parser.add_argument("--vulhub_path", type=str, default="~/vulhub",
@@ -1155,41 +1664,56 @@ Examples:
                         help="Output directory for dataset (default: ~/data/cve_vulhub)")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of CVEs to process (for testing)")
-    parser.add_argument("--model", type=str, default="gpt-4o",
-                        help="OpenAI model to use (default: gpt-4o)")
+    parser.add_argument("--model", type=str, default=None,
+                        help=f"Model to use (default: {TINKER_DEFAULT_MODEL})")
     parser.add_argument("--api_key", type=str, default=None,
-                        help="OpenAI API key (default: from OPENAI_API_KEY env)")
+                        help="API key (default: from TINKER_API_KEY or OPENAI_API_KEY env)")
+    parser.add_argument("--api_base", type=str, default=None,
+                        help=f"API base URL (default: TINKER_API_BASE env or {TINKER_BASE_URL})")
+    parser.add_argument("--no-docker", action="store_true",
+                        help="Disable Docker verification (LLM-only mode)")
+    parser.add_argument("--skip-verified", action="store_true",
+                        help="Skip CVEs that already have poc_verified.py")
 
     args = parser.parse_args()
+
+    # 解析 API 配置
+    api_key = args.api_key or os.getenv("TINKER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    api_base = args.api_base or os.getenv("TINKER_API_BASE") or TINKER_BASE_URL
+    model = args.model or TINKER_DEFAULT_MODEL
 
     print("=" * 60)
     print("Vulhub Dataset Builder v2.0")
     print("=" * 60)
     print(f"Vulhub path: {args.vulhub_path}")
     print(f"Output dir: {args.output_dir}")
-    print(f"Model: {args.model}")
+    print(f"API base: {api_base}")
+    print(f"Model: {model}")
     print(f"OCR available: {OCR_AVAILABLE}")
+    print(f"Docker verification: {'disabled' if args.no_docker else 'enabled'}")
+    print(f"Skip verified: {args.skip_verified}")
     if args.limit:
         print(f"Limit: {args.limit}")
     print("=" * 60)
 
     # 检查 API key
-    api_key = args.api_key or os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("Error: OpenAI API key not found. Set OPENAI_API_KEY environment variable or use --api_key")
+        print("Error: API key not found. Set TINKER_API_KEY (or OPENAI_API_KEY) environment variable or use --api_key")
         return 1
 
     try:
         # 初始化
         scanner = VulhubScanner(args.vulhub_path)
-        builder = DatasetBuilder(args.output_dir, api_key)
+        builder = DatasetBuilder(args.output_dir, api_key=api_key,
+                                 api_base=api_base, no_docker=args.no_docker)
 
         # 更新模型设置
-        builder.poc_generator.model = args.model
-        builder.poc_validator.model = args.model
+        builder.poc_generator.model = model
+        builder.poc_validator.model = model
 
         # 构建数据集
-        output_path = builder.build(scanner, limit=args.limit)
+        output_path = builder.build(scanner, limit=args.limit,
+                                    skip_verified=args.skip_verified)
 
         print("\n" + "=" * 60)
         print("Dataset built successfully!")
