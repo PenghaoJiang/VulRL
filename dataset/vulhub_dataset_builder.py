@@ -3,10 +3,10 @@ Vulhub Dataset Builder v2.0
 从 Vulhub 解析数据并生成训练数据集
 
 核心特性：
-1. 全面理解 README（文本 + 代码块 + 图片 OCR）
-2. 生成完整可执行的 Python PoC 脚本
-3. LLM 逻辑验证确保 PoC 正确性
-4. 以 PoC 为中心的数据集结构
+1. 全面理解 README（文本 + 代码块 + 图片 Vision API 直接处理）
+2. 两层 IR 中间表示（事实层 + 可回放规格层）
+3. 回放式 PoC 生成（翻译 spec，不重新发明 payload）
+4. 逐项对账验证 + Docker 实战验证
 """
 
 import os
@@ -28,14 +28,8 @@ import pandas as pd
 from openai import OpenAI
 import docker
 
-# OCR 相关导入（可选依赖）
-try:
-    import pytesseract
-    from PIL import Image
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
-    print("Warning: pytesseract or Pillow not installed. OCR will be disabled.")
+# 图片处理（base64 编码，供 Vision API 使用）
+import mimetypes
 
 
 # ============================================================================
@@ -70,11 +64,13 @@ class CodeBlock:
 
 @dataclass
 class ImageContent:
-    """图片 OCR 提取内容"""
+    """图片内容（base64 编码，供 Vision API 直接处理）"""
     image_path: str        # 图片文件路径
-    ocr_text: str          # pytesseract 提取的文字
-    description: str       # 图片内容描述
-    is_success_indicator: bool = False  # 是否展示成功利用
+    base64_data: str       # base64 编码的图片数据
+    mime_type: str          # MIME 类型 (image/png, image/jpeg 等)
+    description: str       # 图片描述（文件名 + 上下文）
+    ocr_text: str = ""     # 保留字段（兼容，不再使用 tesseract）
+    is_success_indicator: bool = False  # 保留字段（兼容）
 
 
 @dataclass
@@ -166,52 +162,60 @@ class DockerVerificationResult:
 
 
 # ============================================================================
-# OCR 处理器
+# 图片处理器（base64 编码，供 Vision API 使用）
 # ============================================================================
 
-class OCRProcessor:
-    """图片 OCR 处理器"""
+class ImageProcessor:
+    """图片处理器：将图片编码为 base64，供 GPT-4.1 Vision API 直接处理"""
 
-    def __init__(self, openai_client: OpenAI = None):
-        self.client = openai_client
+    # 支持的图片格式
+    SUPPORTED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'}
 
-    def extract_text(self, image_path: Path) -> str:
-        """使用 pytesseract 提取图片文字"""
-        if not OCR_AVAILABLE:
-            return ""
+    # 图片大小限制（20MB，OpenAI Vision API 限制）
+    MAX_FILE_SIZE = 20 * 1024 * 1024
+
+    @staticmethod
+    def encode_image(image_path: Path) -> Optional[ImageContent]:
+        """将图片编码为 base64，返回 ImageContent"""
+        if not image_path.exists():
+            print(f"  Warning: Image not found: {image_path}")
+            return None
+
+        suffix = image_path.suffix.lower()
+        if suffix not in ImageProcessor.SUPPORTED_EXTENSIONS:
+            print(f"  Warning: Unsupported image format: {suffix}")
+            return None
+
+        # 检查文件大小
+        file_size = image_path.stat().st_size
+        if file_size > ImageProcessor.MAX_FILE_SIZE:
+            print(f"  Warning: Image too large ({file_size} bytes): {image_path}")
+            return None
 
         try:
-            image = Image.open(image_path)
-            # 转换为 RGB 模式（处理 PNG 透明通道）
-            if image.mode in ('RGBA', 'P'):
-                image = image.convert('RGB')
-            text = pytesseract.image_to_string(image, lang='eng+chi_sim')
-            return text.strip()
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+
+            b64_data = base64.b64encode(image_data).decode('utf-8')
+
+            # 确定 MIME 类型
+            mime_type = mimetypes.guess_type(str(image_path))[0]
+            if not mime_type:
+                mime_map = {'.png': 'image/png', '.jpg': 'image/jpeg',
+                           '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+                           '.webp': 'image/webp', '.bmp': 'image/bmp'}
+                mime_type = mime_map.get(suffix, 'image/png')
+
+            return ImageContent(
+                image_path=str(image_path),
+                base64_data=b64_data,
+                mime_type=mime_type,
+                description=f"Screenshot: {image_path.name}"
+            )
+
         except Exception as e:
-            print(f"  Warning: OCR failed for {image_path}: {e}")
-            return ""
-
-    def describe_image(self, image_path: Path, ocr_text: str) -> ImageContent:
-        """生成图片描述"""
-        description = f"Image at {image_path.name}"
-        is_success = False
-
-        # 基于 OCR 文本推断
-        if ocr_text:
-            success_keywords = ['success', 'pwned', 'root', 'admin', 'rce',
-                              'command executed', 'shell', 'flag', 'id=0']
-            if any(kw in ocr_text.lower() for kw in success_keywords):
-                is_success = True
-                description = f"Screenshot showing successful exploitation. OCR content: {ocr_text[:200]}"
-            else:
-                description = f"Screenshot with content: {ocr_text[:200]}"
-
-        return ImageContent(
-            image_path=str(image_path),
-            ocr_text=ocr_text,
-            description=description,
-            is_success_indicator=is_success
-        )
+            print(f"  Warning: Failed to encode image {image_path}: {e}")
+            return None
 
 
 # ============================================================================
@@ -221,8 +225,8 @@ class OCRProcessor:
 class ContentParser:
     """README 内容解析器"""
 
-    def __init__(self, ocr_processor: OCRProcessor = None):
-        self.ocr = ocr_processor or OCRProcessor()
+    def __init__(self, image_processor: ImageProcessor = None):
+        self.image_processor = image_processor or ImageProcessor()
 
     def extract_code_blocks(self, markdown: str) -> List[CodeBlock]:
         """从 Markdown 中提取所有代码块"""
@@ -317,18 +321,224 @@ class ContentParser:
         # 提取代码块
         code_blocks = self.extract_code_blocks(content)
 
-        # 提取并处理图片
+        # 提取并处理图片（base64 编码，供 Vision API 使用）
         image_paths = self.extract_images(content, cve_path)
         images = []
         for img_path in image_paths:
-            ocr_text = self.ocr.extract_text(img_path)
-            image_content = self.ocr.describe_image(img_path, ocr_text)
-            images.append(image_content)
+            image_content = self.image_processor.encode_image(img_path)
+            if image_content:
+                images.append(image_content)
 
         # 提取参考链接
         links = self.extract_reference_links(content)
 
         return content, code_blocks, images, links
+
+    # ========================================================================
+    # Step 0 预处理：带 ID 标注 + HTTP 请求检测 + 组装结构化输入
+    # ========================================================================
+
+    @staticmethod
+    def is_http_request_block(content: str) -> bool:
+        """检测代码块是否是原始 HTTP 请求"""
+        first_line = content.strip().split('\n')[0].strip()
+        return bool(re.match(
+            r'^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+/\S*\s*(HTTP/[\d.]+)?$',
+            first_line
+        ))
+
+    @staticmethod
+    def is_curl_command(content: str) -> bool:
+        """检测代码块是否是 curl 命令"""
+        stripped = content.strip()
+        return stripped.startswith('curl ') or stripped.startswith('curl\t')
+
+    @staticmethod
+    def parse_http_request_block(content: str) -> Optional[Dict[str, Any]]:
+        """将原始 HTTP 请求文本解析为结构化格式"""
+        lines = content.strip().split('\n')
+        if not lines:
+            return None
+
+        # 解析请求行: METHOD /path HTTP/1.1
+        first_line = lines[0].strip()
+        req_match = re.match(r'^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(\S+)', first_line)
+        if not req_match:
+            return None
+
+        method = req_match.group(1)
+        path = req_match.group(2)
+
+        # 解析 headers 和 body（空行分隔）
+        headers = {}
+        body_lines = []
+        in_body = False
+        for line in lines[1:]:
+            if in_body:
+                body_lines.append(line)
+            elif line.strip() == '':
+                in_body = True
+            else:
+                # Header: Value
+                header_match = re.match(r'^([^:]+):\s*(.*)$', line)
+                if header_match:
+                    headers[header_match.group(1).strip()] = header_match.group(2).strip()
+
+        body_raw = '\n'.join(body_lines).strip() if body_lines else ""
+
+        return {
+            "method": method,
+            "path": path,
+            "headers": headers,
+            "body_raw": body_raw
+        }
+
+    @staticmethod
+    def parse_curl_command(content: str) -> Optional[Dict[str, Any]]:
+        """将 curl 命令解析为结构化 HTTP 请求格式"""
+        cmd = content.strip()
+        # 合并续行符
+        cmd = re.sub(r'\\\n\s*', ' ', cmd)
+
+        result = {"method": "GET", "path": "", "headers": {}, "body_raw": "", "original_curl": cmd}
+
+        # 提取 URL
+        url_match = re.search(r"""(?:['"])(https?://\S+?)(?:['"])|\s(https?://\S+)""", cmd)
+        if url_match:
+            url = url_match.group(1) or url_match.group(2)
+            # 提取 path 部分（去掉 scheme + host）
+            path_match = re.match(r'https?://[^/]+(/.*)$', url)
+            result["path"] = path_match.group(1) if path_match else "/"
+
+        # 检测 method
+        method_match = re.search(r'-X\s+(\w+)', cmd)
+        if method_match:
+            result["method"] = method_match.group(1).upper()
+        elif re.search(r'--data\b|-d\s', cmd):
+            result["method"] = "POST"
+
+        # 提取 headers
+        for h_match in re.finditer(r"""-H\s+'([^']+)'|-H\s+"([^"]+)" """, cmd):
+            header_str = h_match.group(1) or h_match.group(2)
+            if ':' in header_str:
+                key, val = header_str.split(':', 1)
+                result["headers"][key.strip()] = val.strip()
+
+        # 提取 data/body（匹配配对引号）
+        data_match = re.search(r"""(?:--data|--data-raw|-d)\s+'([^']*)'""", cmd, re.DOTALL)
+        if not data_match:
+            data_match = re.search(r'(?:--data|--data-raw|-d)\s+"([^"]*)"', cmd, re.DOTALL)
+        if data_match:
+            result["body_raw"] = data_match.group(1)
+
+        # 检测特殊 curl flags
+        if '--path-as-is' in cmd:
+            result["curl_flags"] = ["--path-as-is"]
+
+        return result
+
+    def build_annotated_input(
+        self,
+        readme_text: str,
+        code_blocks: List[CodeBlock],
+        images: List[ImageContent],
+        poc_files: Dict[str, str],
+        docker_config: 'DockerConfig',
+        cve_id: str
+    ) -> Tuple[str, List[Dict]]:
+        """
+        组装带 ID 标注的结构化输入文档（Step 0 预处理）。
+
+        Returns:
+            (annotated_input_text, pre_parsed_requests)
+        """
+        parts = []
+        pre_parsed_requests = []
+
+        # === README 原文 ===
+        parts.append("=== README FULL TEXT ===")
+        parts.append(readme_text)
+        parts.append("")
+
+        # === 内容块清单（带 ID） ===
+        parts.append("=== CONTENT BLOCKS ===")
+        parts.append("")
+
+        for i, cb in enumerate(code_blocks):
+            block_id = f"CB_{i+1}"
+
+            # 检测块类型
+            if self.is_http_request_block(cb.content):
+                block_type = "http_request"
+                parsed = self.parse_http_request_block(cb.content)
+                if parsed:
+                    parsed["block_id"] = block_id
+                    parsed["source_context"] = cb.context
+                    pre_parsed_requests.append(parsed)
+            elif self.is_curl_command(cb.content):
+                block_type = "curl_command"
+                parsed = self.parse_curl_command(cb.content)
+                if parsed:
+                    parsed["block_id"] = block_id
+                    parsed["source_context"] = cb.context
+                    pre_parsed_requests.append(parsed)
+            elif cb.language in ('python', 'py'):
+                block_type = "python"
+            elif cb.language in ('bash', 'shell', 'sh'):
+                block_type = "shell"
+            elif cb.language in ('java', 'javascript', 'js'):
+                block_type = cb.language
+            else:
+                block_type = cb.language or "text"
+
+            parts.append(f"[{block_id}] ({block_type}) Line {cb.line_number} | Context: \"{cb.context}\"")
+            parts.append(cb.content)
+            parts.append("")
+
+        # === 图片（实际图片通过 Vision API 传入，这里仅标注 ID） ===
+        if images:
+            parts.append("=== IMAGES (actual images are provided as visual input below) ===")
+            parts.append("")
+            for i, img in enumerate(images):
+                img_id = f"IMG_{i+1}"
+                parts.append(f"[{img_id}] {Path(img.image_path).name}")
+                parts.append(f"  (This image is provided as visual input — analyze it directly)")
+                parts.append("")
+
+        # === 已有 PoC 文件 ===
+        if poc_files:
+            parts.append("=== EXISTING POC FILES IN DIRECTORY ===")
+            parts.append("")
+            for j, (filename, content) in enumerate(poc_files.items()):
+                poc_id = f"POC_{j+1}"
+                parts.append(f"[{poc_id}] {filename}")
+                parts.append(content)
+                parts.append("")
+
+        # === Docker 配置 ===
+        parts.append("=== DOCKER CONFIGURATION ===")
+        parts.append(f"Primary Service: {docker_config.primary_service}")
+        parts.append(f"Primary Port: {docker_config.primary_port}")
+        if docker_config.exposed_ports:
+            parts.append(f"All Exposed Ports: {docker_config.exposed_ports}")
+        if docker_config.environment_vars:
+            parts.append(f"Environment Variables: {json.dumps(docker_config.environment_vars)}")
+        parts.append("")
+
+        # === 预解析的 HTTP 请求 ===
+        if pre_parsed_requests:
+            parts.append("=== PRE-PARSED HTTP REQUESTS (auto-detected) ===")
+            parts.append("")
+            for req in pre_parsed_requests:
+                parts.append(f"[REQ_{req['block_id']}] Method={req['method']} Path={req['path']}")
+                if req.get('body_raw'):
+                    parts.append(f"  Body: {req['body_raw'][:200]}{'...' if len(req.get('body_raw', '')) > 200 else ''}")
+                if req.get('curl_flags'):
+                    parts.append(f"  Curl Flags: {req['curl_flags']}")
+                parts.append("")
+
+        annotated_text = '\n'.join(parts)
+        return annotated_text, pre_parsed_requests
 
     def parse_docker_compose(self, compose_path: Path) -> DockerConfig:
         """解析 docker-compose.yml"""
@@ -399,9 +609,10 @@ class ContentParser:
 # JSON 容错解析
 # ============================================================================
 
-# Tinker 默认配置
-TINKER_BASE_URL = "https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1"
-TINKER_DEFAULT_MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+# API 默认配置
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_MODEL = "gpt-5.2-codex"               # completions API — 用于 PoC 生成和验证
+DEFAULT_CHAT_MODEL = "gpt-5.2-2025-12-11"     # chat API (支持 Vision) — 用于 IR 提取
 
 
 def parse_json_response(text: str) -> Dict:
@@ -447,315 +658,412 @@ def parse_json_response(text: str) -> Dict:
 class PoCGenerator:
     """PoC 脚本生成器"""
 
-    README_ANALYSIS_PROMPT = """You are a security expert analyzing a Vulhub CVE documentation.
+    # ========================================================================
+    # Step 1 Prompt: 两层 IR 提取（事实层 + 可执行层）
+    # ========================================================================
 
-## Input Materials
+    README_ANALYSIS_PROMPT = """You are a security expert performing precise information extraction from a Vulhub CVE documentation.
 
-### README Content:
-{readme_content}
+## CVE ID: {cve_id}
 
-### Code Blocks Extracted from README:
-{code_blocks}
+## Input Materials (with Block IDs)
 
-### OCR Text from Images:
-{ocr_content}
+{annotated_input}
 
-### Existing PoC Files in Directory:
-{existing_poc_files}
+## Your Task
 
-### Docker Configuration:
-- Primary Port: {primary_port}
-- Primary Service: {primary_service}
+Extract ALL technical information needed to reproduce this exploit. Output a two-layer JSON structure:
+- **Layer A (facts)**: Evidence-grounded facts only. Every claim must cite a source block ID.
+- **Layer B (spec)**: Replayable specification — HTTP requests, commands, and success oracles that can be directly translated into executable code.
 
-### CVE ID: {cve_id}
+## CRITICAL RULES
 
-## Task
-Analyze ALL provided materials and extract comprehensive vulnerability information.
+1. **NO SPECULATION**: If the materials do not explicitly provide a version, path, parameter, request body format, or any other detail, you MUST set it to null and add the missing item to `missing_information[]`. Never guess or infer values that are not in the materials.
+2. **CITE EVIDENCE**: Every key field must include `evidence[]` with the source `block` ID (e.g., "CB_2", "IMG_1", "README") and a verbatim `quote` from that source.
+3. **PRESERVE EXACTLY**: HTTP paths, headers, request bodies, payloads, and URL-encoded characters (like %2e, %2f) must be copied character-for-character from the materials. Do NOT reformat, simplify, re-encode, or paraphrase any technical value.
+4. **MARK VARIABLES**: Replace only obvious placeholders in the materials (such as "your-ip", "target", "your-server-ip", "localhost" used as target) with `{{{{host}}}}` and port placeholders with `{{{{port}}}}`. All other content must remain exactly as-is.
 
-## Output as JSON:
+## Output JSON Structure
+
 {{
-  "vulnerability_type": "string (rce/sqli/ssti/path_traversal/deserialization/file_upload/auth_bypass/ssrf/xxe/xss/file_inclusion/command_injection/other)",
-  "service_name": "string (e.g., Apache ActiveMQ, WordPress, nginx)",
-  "service_version": "string (e.g., 5.17.3, < 2.4.50)",
-  "vulnerability_description": "string (brief description of the vulnerability)",
-  "environment_setup": "string (how to set up the environment)",
-  "exploitation_steps": [
-    {{
-      "step_number": 1,
-      "description": "string (what to do)",
-      "action_type": "string (http_request/socket/command/upload/inject)",
-      "technical_details": {{
-        "method": "string (GET/POST/PUT/etc, if HTTP)",
-        "endpoint": "string (target path)",
-        "payload": "string (the actual payload)",
-        "headers": {{}},
-        "notes": "string (any important notes)"
-      }},
-      "expected_observation": "string (what you should see)"
-    }}
-  ],
-  "success_indicators": ["string (observable evidence of success)"],
-  "required_dependencies": ["string (pip package names ONLY, e.g., \"requests\", \"pwntools\". Do NOT add descriptions or parentheses. Do NOT include standard library modules like os, sys, json, re, time, argparse, hashlib, base64, urllib)"],
-  "difficulty": "string (easy/medium/hard)"
+  "facts": {{
+    "cve_id": "{cve_id}",
+    "service": {{
+      "name": "string (e.g., Elasticsearch, Apache httpd)",
+      "version": "string or null (e.g., 'before 1.2', '2.4.49')",
+      "evidence": [{{"block": "string (block ID)", "quote": "string (verbatim excerpt)"}}]
+    }},
+    "vulnerability_type": "string (rce/sqli/ssti/path_traversal/deserialization/file_upload/auth_bypass/ssrf/xxe/xss/file_inclusion/command_injection/other)",
+    "root_cause": {{
+      "description": "string (one sentence explaining the root cause)",
+      "evidence": [{{"block": "...", "quote": "..."}}]
+    }},
+    "prerequisites": [
+      {{
+        "description": "string (what must be true before exploitation)",
+        "evidence": [{{"block": "...", "quote": "..."}}]
+      }}
+    ],
+    "image_observations": [
+      {{
+        "block": "string (IMG_N)",
+        "description": "string (what the screenshot shows)",
+        "key_content": "string (important text visible in screenshot, e.g., 'uid=0(root)')",
+        "evidence": [{{"block": "...", "quote": "..."}}]
+      }}
+    ],
+    "reference_links": ["string (URLs from README)"],
+    "missing_information": ["string (anything needed but not found in the materials)"]
+  }},
+
+  "spec": {{
+    "target": {{
+      "protocol": "string (http or https)",
+      "default_port": {primary_port},
+      "base_url": "string (e.g., 'http://{{{{host}}}}:{{{{port}}}}')"
+    }},
+
+    "requests": [
+      {{
+        "id": "string (REQ_1, REQ_2, ...)",
+        "step": 1,
+        "purpose": "string (prerequisite / exploit / verification)",
+        "description": "string (what this request does)",
+        "source_block": "string (CB_N that contains this request)",
+        "method": "string (GET/POST/PUT/DELETE/etc.)",
+        "path": "string (exact path from materials, with {{{{host}}}}/{{{{port}}}} variables only)",
+        "headers": {{"string": "string (exact header values)"}},
+        "body_raw": "string (exact request body, with {{{{host}}}}/{{{{port}}}} variables only) or empty string",
+        "content_type": "string or null (Content-Type header value)",
+        "variables": ["string (list of variables used, e.g., '{{{{host}}}}', '{{{{port}}}}')"],
+        "evidence": [{{"block": "...", "quote": "..."}}]
+      }}
+    ],
+
+    "oracles": [
+      {{
+        "id": "string (ORC_1, ORC_2, ...)",
+        "type": "string (response_contains / status_code / regex / exit_code)",
+        "applies_to": "string (REQ_N that this oracle checks)",
+        "expected_strings": ["string (substrings to look for in response)"],
+        "expected_status": null,
+        "evidence": [{{"block": "...", "quote": "..."}}]
+      }}
+    ],
+
+    "attack_sequence_summary": [
+      "string (step 1: brief description)",
+      "string (step 2: brief description)"
+    ],
+
+    "dependencies": ["string (pip package names ONLY, e.g., 'requests'. Do NOT include stdlib modules)"]
+  }}
 }}
 
-Important:
-- Be VERY specific about exploitation steps based on the README and existing PoC code
-- Extract actual payloads, endpoints, and parameters from the documentation
-- If existing PoC files are provided, analyze their logic carefully
-- Output ONLY valid JSON, no other text"""
+Output ONLY valid JSON. No text before or after."""
 
-    POC_GENERATION_PROMPT = """You are a security expert writing a Python PoC (Proof of Concept) script.
+    # ========================================================================
+    # Step 2 Prompt: 回放式 PoC 生成
+    # ========================================================================
 
-## Vulnerability Analysis:
-{vulnerability_analysis}
+    POC_GENERATION_PROMPT = """You are a security expert generating a Python PoC script for a CVE.
+
+## CVE ID: {cve_id}
+
+## Replayable Specification (from analysis):
+{ir_spec}
+
+## README Original Text (for cross-reference):
+{readme_content}
 
 ## Existing PoC Reference (if available):
 {existing_poc}
 
-## README Code Blocks:
-{code_blocks}
+## All Code Blocks from README:
+{all_code_blocks}
 
-## Requirements
+## Execution Environment
+This PoC will run inside a Docker attacker container on the same network as the target:
+- Target is accessible at the hostname and port passed via --host and --port arguments
+  (e.g., {service_name}:{primary_port} inside Docker network)
+- Python 3 + requests are pre-installed
+- Direct TCP access to target (no firewall)
 
-Generate a COMPLETE, EXECUTABLE Python script that exploits this vulnerability.
+## YOUR TASK
 
-### Script Requirements:
-1. **Standalone executable** - Can run directly with `python3 poc.py`
-2. **Command-line arguments** using argparse:
-   - `--host` or `--target`: Target host (required)
-   - `--port`: Target port (with sensible default based on vulnerability)
-   - Any other necessary parameters
-3. **Clear output messages**:
-   - `[+]` prefix for successful steps
-   - `[-]` prefix for failures
-   - `[*]` prefix for informational messages
-4. **Error handling** - Catch and handle common errors gracefully
-5. **Comments** - Explain key parts of the exploit
+根据 Replayable Specification、README 原文、已有 PoC 参考和代码块，
+生成一个完整的、可执行的 Python PoC 脚本。
 
-### Code Structure Template:
-```python
-#!/usr/bin/env python3
-\"\"\"
-{cve_id} PoC - {service_name} {vulnerability_type}
-{brief_description}
+### 注意事项（Notes）：
 
-Usage: python3 poc.py --host TARGET_HOST --port TARGET_PORT
-\"\"\"
+- spec.requests[] 提供了攻击的核心请求，作为重要参考。但 spec 可能不完整，
+  你需要根据 README 和目标服务的特性，自行判断是否需要补充前置步骤
+  （如登录、session 建立、token 获取等）
 
-import argparse
-import requests  # or other necessary imports
-# ... other imports
+- 仔细阅读 README 原文和截图描述，它们包含了 spec 可能遗漏的关键上下文
+  （如 Web 界面的交互流程、认证方式、具体的 URL 路径等）
 
-def exploit(host: str, port: int, **kwargs) -> bool:
-    \"\"\"
-    Main exploitation function.
+- 如果有已有 PoC 参考（Existing PoC Reference），认真分析其实现思路，
+  它可能包含正确的请求流程和参数
 
-    Args:
-        host: Target host IP/hostname
-        port: Target port
+- 实现 spec.oracles[] 中的验证逻辑：
+  - response_contains → 检查 response.text 是否包含 expected_strings
+  - status_code → 检查 response.status_code
+  - regex → 使用 re.search 匹配 response.text
+  - exit_code → 检查进程返回码
 
-    Returns:
-        True if exploitation successful, False otherwise
-    \"\"\"
-    target_url = f"http://{{host}}:{{port}}"
+- 目标在 Docker 网络中，通过 --host 和 --port 参数访问
 
-    # Step 1: ...
-    print(f"[*] Targeting {{target_url}}")
+- 每个 HTTP 请求后必须打印调试信息：
+  print(f"[DEBUG] Status: {{resp.status_code}}")
+  print(f"[DEBUG] Response (first 1000 chars): {{resp.text[:1000]}}")
 
-    # Implement exploitation logic here
-    # ...
-
-    return True  # or False
-
-def main():
-    parser = argparse.ArgumentParser(
-        description='{cve_id} PoC',
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument('--host', '-H', required=True, help='Target host')
-    parser.add_argument('--port', '-p', type=int, default={default_port}, help='Target port')
-    # Add more arguments as needed
-
-    args = parser.parse_args()
-
-    print(f"[*] {cve_id} Exploit")
-    print(f"[*] Target: {{args.host}}:{{args.port}}")
-
-    try:
-        success = exploit(args.host, args.port)
-        if success:
-            print("[+] Exploitation successful!")
-        else:
-            print("[-] Exploitation failed")
-    except KeyboardInterrupt:
-        print("\\n[-] Interrupted by user")
-    except Exception as e:
-        print(f"[-] Error: {{e}}")
-
-if __name__ == "__main__":
-    main()
-```
+- 脚本要求：
+  - 以 #!/usr/bin/env python3 开头
+  - argparse：--host (required), --port (default={primary_port})
+  - 输出标记：[+] 成功, [-] 失败, [*] 信息
+  - exit code：0 成功, 1 失败
 
 ## Output
 Generate ONLY the complete Python script. No explanations before or after.
-The script must be syntactically correct and executable.
 Start with #!/usr/bin/env python3"""
 
-    POC_VALIDATION_PROMPT = """You are a security expert reviewing a generated PoC script.
+    # ========================================================================
+    # Step 3 Prompt: 逐项对账验证
+    # ========================================================================
 
-## Original README Content:
+    POC_VALIDATION_PROMPT = """You are a security expert performing item-by-item verification of a generated PoC script against its specification.
+
+## Replayable Specification:
+{ir_spec}
+
+## README Original Text (for cross-reference):
 {readme_content}
-
-## Vulnerability Analysis:
-{vulnerability_analysis}
 
 ## Generated PoC Script:
 ```python
 {generated_poc}
 ```
 
-## Your Task
-Check whether this PoC script is CORRECT and can exploit the vulnerability as described.
+## YOUR TASK: Verify the PoC by comparing it against the spec, item by item.
 
-Specifically check:
-1. Are the exploitation steps complete? (endpoints, payloads, parameters, headers)
-2. Are HTTP methods, URL paths, and payload formats correct?
-3. Is the script syntactically valid and executable?
-4. Are the steps in the correct order with proper dependencies?
+### Verification Dimensions:
 
-## IMPORTANT: Issue Reporting Rules
-If you find issues, you MUST be SPECIFIC and CONCRETE:
-- BAD: "payload construction has flaws" (vague, useless)
-- GOOD: "Line `payload = f'{{{{cmd}}}}'` should be `payload = f'O:1:\"S\":1:{{{{s:4:\"cmd\";s:{{{{len(cmd)}}}}:\"{{{{cmd}}}}\";}}}}' ` because the vulnerability requires PHP serialized object format"
-- BAD: "output verification is unreliable" (vague)
-- GOOD: "Line `if 'success' in resp.text` should check for the command output like `if 'uid=0' in resp.text` because the exploit runs `id` command"
+1. **request_diff[]** — For EACH request in spec.requests[]:
+   - Is the HTTP method identical? (e.g., POST vs GET)
+   - Is the path character-for-character identical? (pay special attention to URL-encoded chars like %2e, %2f, query parameters)
+   - Are critical headers present and correct? (especially Content-Type)
+   - Is the request body character-for-character identical to spec.body_raw? (check JSON structure, escaping, field names, payload strings)
+   - Status: "match" / "mismatch" / "missing"
+   - If mismatch: specify the exact field, expected value (from spec), and actual value (from PoC)
 
-Each issue must include: the exact code that is wrong, why it is wrong, and the exact fix.
+2. **oracle_coverage[]** — For EACH oracle in spec.oracles[]:
+   - Does the PoC script implement this success check?
+   - Is the check logic correct? (correct string to search for, correct response to check)
+   - Status: "covered" / "not_covered" / "incorrect"
 
-## Output as JSON:
+3. **parameterization** — Variable handling:
+   - Are --host and --port correctly wired to all requests?
+   - Are there any hardcoded target addresses (e.g., "localhost", "127.0.0.1", "your-ip")?
+
+4. **execution_readiness** — Can the script actually run?
+   - Is the Python syntax valid?
+   - Are all imports present?
+   - Are argparse arguments correctly defined?
+   - Are request prerequisite steps executed before exploit steps?
+
+## Output JSON:
 {{
-  "is_valid": true/false,
-  "issues": [
+  "verdict": "pass or fail",
+  "request_diff": [
     {{
-      "wrong_code": "string (the exact line or snippet that is wrong)",
-      "reason": "string (why it is wrong, with technical detail)",
-      "fix": "string (the exact corrected code)"
+      "spec_request": "string (REQ_N)",
+      "status": "match or mismatch or missing",
+      "details": null or {{
+        "field": "string (method/path/headers/body)",
+        "expected": "string (from spec)",
+        "actual": "string (from PoC)",
+        "fix": "string (exact code fix)"
+      }}
     }}
   ],
-  "missing_steps": ["string (specific step that is missing, e.g. 'Must send POST to /login first to get session cookie before exploiting /vuln endpoint')"],
-  "summary": "string (one sentence: why it is correct or what is the most critical problem)"
+  "oracle_coverage": [
+    {{
+      "oracle": "string (ORC_N)",
+      "status": "covered or not_covered or incorrect",
+      "details": null or "string (what is wrong)"
+    }}
+  ],
+  "parameterization": {{
+    "host_correct": true or false,
+    "port_correct": true or false,
+    "hardcoded_addresses": ["string (any hardcoded addresses found)"]
+  }},
+  "execution_readiness": {{
+    "syntax_valid": true or false,
+    "imports_complete": true or false,
+    "argparse_correct": true or false,
+    "prerequisite_order_correct": true or false
+  }},
+  "issues": [
+    {{
+      "severity": "critical or minor",
+      "spec_ref": "string (REQ_N or ORC_N or null)",
+      "location": "string (e.g., 'line 42' or 'exploit() function')",
+      "wrong_code": "string (the exact code that is wrong)",
+      "fix": "string (the exact corrected code)",
+      "reason": "string (why it is wrong, referencing spec)"
+    }}
+  ],
+  "summary": "string (one sentence: why it passes or what is the most critical problem)"
 }}
 
-If the script is correct, set is_valid=true and leave issues and missing_steps as empty arrays."""
+Output ONLY valid JSON. No text before or after."""
 
     def __init__(self, api_key: str = None, model: str = None,
-                 api_base: str = None):
-        api_key = api_key or os.getenv("TINKER_API_KEY") or os.getenv("OPENAI_API_KEY")
-        api_base = api_base or os.getenv("TINKER_API_BASE") or TINKER_BASE_URL
+                 api_base: str = None, chat_model: str = None):
+        api_key = api_key or os.getenv("OPENAI_API_KEY")
+        api_base = api_base or os.getenv("OPENAI_API_BASE") or OPENAI_BASE_URL
         self.client = OpenAI(api_key=api_key, base_url=api_base)
-        self.model = model or TINKER_DEFAULT_MODEL
+        self.model = model or DEFAULT_MODEL              # completions 模型（PoC 生成）
+        self.chat_model = chat_model or DEFAULT_CHAT_MODEL  # chat 模型（IR 提取，支持 Vision）
 
-    def analyze_readme(self, entry: VulhubEntry) -> Dict:
-        """分析 README 内容，提取结构化信息"""
-        # 准备代码块信息
-        code_blocks_text = ""
-        for i, cb in enumerate(entry.readme_analysis.code_blocks):
-            code_blocks_text += f"\n### Code Block {i+1} ({cb.language}):\n"
-            code_blocks_text += f"Context: {cb.context}\n"
-            code_blocks_text += f"```{cb.language}\n{cb.content}\n```\n"
+    def analyze_readme(self, entry: VulhubEntry, annotated_input: str) -> Dict:
+        """
+        Step 1: 两层 IR 提取（事实层 + 可执行层）。
+        使用 chat_model (Vision API) 直接处理 README 中的截图。
 
-        # 准备 OCR 内容
-        ocr_content = ""
-        for img in entry.readme_analysis.images:
-            if img.ocr_text:
-                ocr_content += f"\n### Image: {Path(img.image_path).name}\n"
-                ocr_content += f"OCR Text: {img.ocr_text}\n"
-                ocr_content += f"Description: {img.description}\n"
+        Args:
+            entry: VulhubEntry with parsed README data
+            annotated_input: Pre-processed annotated input from build_annotated_input()
 
-        # 准备现有 PoC 文件
-        existing_poc_text = ""
-        for filename, content in entry.original_poc_files.items():
-            existing_poc_text += f"\n### {filename}:\n```\n{content}\n```\n"
-
+        Returns:
+            Two-layer IR dict with 'facts' and 'spec' keys
+        """
         prompt = self.README_ANALYSIS_PROMPT.format(
-            readme_content=entry.readme_analysis.raw_text[:6000],
-            code_blocks=code_blocks_text or "No code blocks found",
-            ocr_content=ocr_content or "No OCR content available",
-            existing_poc_files=existing_poc_text or "No existing PoC files",
+            annotated_input=annotated_input,
             primary_port=entry.docker_config.primary_port,
-            primary_service=entry.docker_config.primary_service,
             cve_id=entry.cve_id
         )
 
+        # 构建 Responses API 输入（文本 + 图片）— 使用 chat_model (支持 Vision)
+        user_content = [{"type": "input_text", "text": prompt}]
+
+        # 将图片作为 Vision 输入附加
+        for i, img in enumerate(entry.readme_analysis.images):
+            if img.base64_data:
+                img_id = f"IMG_{i+1}"
+                user_content.append({
+                    "type": "input_text",
+                    "text": f"\n[{img_id}] Screenshot from README ({Path(img.image_path).name}):"
+                })
+                user_content.append({
+                    "type": "input_image",
+                    "image_url": f"data:{img.mime_type};base64,{img.base64_data}"
+                })
+
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a security expert. You MUST output ONLY valid JSON, no explanations, no markdown, no extra text before or after the JSON object."},
-                    {"role": "user", "content": prompt}
-                ],
+            response = self.client.responses.create(
+                model=self.chat_model,
+                instructions="You are a security expert performing precise information extraction. You MUST output ONLY valid JSON with the exact structure requested. No explanations, no markdown, no extra text.",
+                input=[{"role": "user", "content": user_content}],
                 temperature=0.1
             )
 
-            return parse_json_response(response.choices[0].message.content)
+            ir = parse_json_response(response.output_text)
+
+            # 确保顶层结构存在
+            if 'facts' not in ir:
+                ir = {"facts": ir, "spec": {"target": {}, "requests": [], "oracles": [], "dependencies": ["requests"]}}
+            if 'spec' not in ir:
+                ir['spec'] = {"target": {}, "requests": [], "oracles": [], "dependencies": ["requests"]}
+
+            return ir
         except Exception as e:
             print(f"  Warning: README analysis failed: {e}")
             return {
-                "vulnerability_type": "other",
-                "service_name": entry.docker_config.primary_service,
-                "service_version": "unknown",
-                "vulnerability_description": "",
-                "environment_setup": "",
-                "exploitation_steps": [],
-                "success_indicators": [],
-                "required_dependencies": ["requests"],
-                "difficulty": "medium"
+                "facts": {
+                    "cve_id": entry.cve_id,
+                    "service": {"name": entry.docker_config.primary_service, "version": None, "evidence": []},
+                    "vulnerability_type": "other",
+                    "root_cause": {"description": "", "evidence": []},
+                    "prerequisites": [],
+                    "image_observations": [],
+                    "reference_links": [],
+                    "missing_information": ["README analysis failed"]
+                },
+                "spec": {
+                    "target": {"protocol": "http", "default_port": entry.docker_config.primary_port, "base_url": f"http://{{{{host}}}}:{{{{port}}}}"},
+                    "requests": [],
+                    "oracles": [],
+                    "attack_sequence_summary": [],
+                    "dependencies": ["requests"]
+                }
             }
 
-    def generate_poc(self, entry: VulhubEntry, analysis: Dict, feedback: str = None) -> GeneratedPoC:
-        """生成 Python PoC 脚本"""
+    def generate_poc(self, entry: VulhubEntry, ir: Dict, feedback: str = None) -> GeneratedPoC:
+        """
+        Step 2: 回放式 PoC 生成。
+
+        Args:
+            entry: VulhubEntry with parsed README data
+            ir: Two-layer IR from analyze_readme()
+            feedback: Feedback from validation/Docker failure (optional)
+
+        Returns:
+            GeneratedPoC with the generated script
+        """
         # 准备现有 PoC 参考
         existing_poc = ""
         if entry.original_poc_files:
-            # 优先使用 poc.py
             if 'poc.py' in entry.original_poc_files:
                 existing_poc = entry.original_poc_files['poc.py']
             else:
-                # 使用第一个找到的 PoC
                 existing_poc = list(entry.original_poc_files.values())[0]
 
-        # 准备代码块
-        code_blocks_text = ""
-        for cb in entry.readme_analysis.code_blocks:
-            if cb.language in ['python', 'bash', 'shell', 'sh', 'curl']:
-                code_blocks_text += f"\n```{cb.language}\n{cb.content}\n```\n"
+        # 准备所有代码块（不再过滤语言）
+        all_code_blocks_text = ""
+        for i, cb in enumerate(entry.readme_analysis.code_blocks):
+            block_id = f"CB_{i+1}"
+            all_code_blocks_text += f"\n[{block_id}] ({cb.language}) Context: \"{cb.context}\"\n"
+            all_code_blocks_text += f"{cb.content}\n"
+
+        # 从 IR 中提取信息
+        facts = ir.get('facts', {})
+        spec = ir.get('spec', {})
+        service_name = facts.get('service', {}).get('name', entry.docker_config.primary_service)
+        primary_port = spec.get('target', {}).get('default_port', entry.docker_config.primary_port)
+
+        # 从 spec 提取依赖
+        deps = spec.get('dependencies', ['requests'])
+
+        # 提取 success indicators（从 oracles）
+        success_indicators = []
+        for oracle in spec.get('oracles', []):
+            for s in oracle.get('expected_strings', []):
+                success_indicators.append(s)
 
         prompt = self.POC_GENERATION_PROMPT.format(
-            vulnerability_analysis=json.dumps(analysis, indent=2, ensure_ascii=False),
+            ir_spec=json.dumps(ir, indent=2, ensure_ascii=False),
+            readme_content=entry.readme_analysis.raw_text,
             existing_poc=existing_poc or "No existing PoC available",
-            code_blocks=code_blocks_text or "No relevant code blocks",
+            all_code_blocks=all_code_blocks_text or "No code blocks found",
             cve_id=entry.cve_id,
-            service_name=analysis.get('service_name', 'Unknown'),
-            vulnerability_type=analysis.get('vulnerability_type', 'vulnerability'),
-            brief_description=analysis.get('vulnerability_description', ''),
-            default_port=entry.docker_config.primary_port
+            service_name=service_name,
+            primary_port=primary_port
         )
 
         if feedback:
             prompt += f"\n\n## Previous Issues (MUST FIX):\n{feedback}"
 
         try:
-            response = self.client.chat.completions.create(
+            response = self.client.responses.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a security expert writing Python exploit code. Output only the Python script, nothing else."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.2
+                instructions="You are a security expert translating a replayable specification into Python exploit code. Replay requests exactly from the spec. Output only the Python script, nothing else.",
+                input=prompt
             )
 
-            script = response.choices[0].message.content.strip()
+            script = response.output_text.strip()
 
             # 清理脚本（移除可能的 markdown 标记）
             if script.startswith('```python'):
@@ -776,9 +1084,9 @@ If the script is correct, set is_valid=true and leave issues and missing_steps a
             return GeneratedPoC(
                 script=script,
                 script_hash=script_hash,
-                dependencies=analysis.get('required_dependencies', ['requests']),
-                execution_cmd=f"python3 poc.py --host {{host}} --port {entry.docker_config.primary_port}",
-                expected_output=', '.join(analysis.get('success_indicators', [])),
+                dependencies=deps,
+                execution_cmd=f"python3 poc.py --host {{host}} --port {primary_port}",
+                expected_output=', '.join(success_indicators),
                 validation_status="pending",
                 validation_notes="",
                 generation_model=self.model,
@@ -805,49 +1113,81 @@ If the script is correct, set is_valid=true and leave issues and missing_steps a
 # ============================================================================
 
 class PoCValidator:
-    """PoC 脚本验证器（LLM 自检：二元判定）"""
+    """PoC 脚本验证器（逐项对账验证）"""
 
     MAX_RETRIES = 3
 
     def __init__(self, api_key: str = None, model: str = None,
                  api_base: str = None):
-        api_key = api_key or os.getenv("TINKER_API_KEY") or os.getenv("OPENAI_API_KEY")
-        api_base = api_base or os.getenv("TINKER_API_BASE") or TINKER_BASE_URL
+        api_key = api_key or os.getenv("OPENAI_API_KEY")
+        api_base = api_base or os.getenv("OPENAI_API_BASE") or OPENAI_BASE_URL
         self.client = OpenAI(api_key=api_key, base_url=api_base)
-        self.model = model or TINKER_DEFAULT_MODEL
+        self.model = model or DEFAULT_MODEL
 
-    def validate(self, entry: VulhubEntry, analysis: Dict) -> ValidationResult:
-        """验证生成的 PoC，返回二元判定（正确/不正确）"""
+    def validate(self, entry: VulhubEntry, ir: Dict) -> ValidationResult:
+        """
+        Step 3: 逐项对账验证 PoC 与 IR spec 的一致性。
+
+        Args:
+            entry: VulhubEntry with poc_script set
+            ir: Two-layer IR from analyze_readme()
+
+        Returns:
+            ValidationResult with verdict and detailed issues
+        """
         if not entry.poc_script or entry.poc_script.script == "# Generation failed":
             return ValidationResult(
                 is_valid=False,
-                issues=[{"description": "No PoC script generated", "suggested_fix": "Regenerate"}],
+                issues=[{"severity": "critical", "reason": "No PoC script generated", "fix": "Regenerate"}],
                 missing_steps=[],
                 summary="No valid PoC script to validate"
             )
 
         prompt = PoCGenerator.POC_VALIDATION_PROMPT.format(
-            readme_content=entry.readme_analysis.raw_text[:4000],
-            vulnerability_analysis=json.dumps(analysis, indent=2, ensure_ascii=False),
+            ir_spec=json.dumps(ir, indent=2, ensure_ascii=False),
+            readme_content=entry.readme_analysis.raw_text,
             generated_poc=entry.poc_script.script
         )
 
         try:
-            response = self.client.chat.completions.create(
+            response = self.client.responses.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a security expert reviewing exploit code. You MUST output ONLY valid JSON, no explanations, no markdown, no extra text before or after the JSON object."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1
+                instructions="You are a security expert performing item-by-item verification. Compare the PoC script against the specification. You MUST output ONLY valid JSON.",
+                input=prompt
             )
 
-            result = parse_json_response(response.choices[0].message.content)
+            result = parse_json_response(response.output_text)
+
+            # 从新格式提取 is_valid
+            verdict = result.get('verdict', 'fail')
+            is_valid = verdict == 'pass'
+
+            # 合并所有问题源
+            issues = result.get('issues', [])
+
+            # 从 request_diff 中提取 mismatch 问题
+            for rd in result.get('request_diff', []):
+                if rd.get('status') in ('mismatch', 'missing'):
+                    details = rd.get('details') or {}
+                    issues.append({
+                        "severity": "critical",
+                        "spec_ref": rd.get('spec_request', ''),
+                        "location": f"request {rd.get('spec_request', '')}",
+                        "wrong_code": details.get('actual', ''),
+                        "fix": details.get('fix', f"Match spec: {details.get('expected', '')}"),
+                        "reason": f"Field '{details.get('field', 'unknown')}' does not match spec. Expected: {details.get('expected', '')}"
+                    })
+
+            # 从 oracle_coverage 中提取未覆盖问题
+            missing_steps = []
+            for oc in result.get('oracle_coverage', []):
+                if oc.get('status') in ('not_covered', 'incorrect'):
+                    missing_steps.append(f"Oracle {oc.get('oracle', '')}: {oc.get('details', 'not implemented')}")
 
             return ValidationResult(
-                is_valid=result.get('is_valid', False),
-                issues=result.get('issues', []),
-                missing_steps=result.get('missing_steps', []),
+                is_valid=is_valid,
+                issues=issues,
+                missing_steps=missing_steps,
                 summary=result.get('summary', '')
             )
 
@@ -855,34 +1195,34 @@ class PoCValidator:
             print(f"  Warning: LLM validation failed: {e}")
             return ValidationResult(
                 is_valid=False,
-                issues=[{"description": f"Validation error: {e}", "suggested_fix": "Retry"}],
+                issues=[{"severity": "critical", "reason": f"Validation error: {e}", "fix": "Retry"}],
                 missing_steps=[],
                 summary=f"LLM validation error: {e}"
             )
 
     def build_feedback(self, validation: ValidationResult) -> str:
-        """将自检发现的问题格式化为反馈文本"""
+        """将逐项对账发现的问题格式化为反馈文本"""
         feedback_parts = []
 
         if validation.issues:
-            feedback_parts.append("## Issues found by LLM self-check (MUST FIX ALL):\n")
+            feedback_parts.append("## Issues found by spec-based verification (MUST FIX ALL):\n")
             for i, issue in enumerate(validation.issues, 1):
-                feedback_parts.append(f"### Issue {i}:")
+                severity = issue.get('severity', 'unknown')
+                feedback_parts.append(f"### Issue {i} [{severity.upper()}]:")
+                if issue.get('spec_ref'):
+                    feedback_parts.append(f"Spec reference: {issue['spec_ref']}")
+                if issue.get('location'):
+                    feedback_parts.append(f"Location: {issue['location']}")
                 if issue.get('wrong_code'):
                     feedback_parts.append(f"Wrong code: `{issue['wrong_code']}`")
                 if issue.get('reason'):
                     feedback_parts.append(f"Reason: {issue['reason']}")
                 if issue.get('fix'):
                     feedback_parts.append(f"Fix: `{issue['fix']}`")
-                # 兼容旧格式
-                if issue.get('description'):
-                    feedback_parts.append(f"Problem: {issue['description']}")
-                if issue.get('suggested_fix'):
-                    feedback_parts.append(f"Fix: {issue['suggested_fix']}")
                 feedback_parts.append("")
 
         if validation.missing_steps:
-            feedback_parts.append("## Missing steps:")
+            feedback_parts.append("## Uncovered oracles / missing steps:")
             for step in validation.missing_steps:
                 feedback_parts.append(f"- {step}")
 
@@ -923,9 +1263,66 @@ class DockerPoCVerifier:
             return ["docker-compose"]
         raise RuntimeError("Neither 'docker compose' nor 'docker-compose' found")
 
-    def verify(self, entry: VulhubEntry, poc_script: str, analysis: Dict) -> DockerVerificationResult:
+    @staticmethod
+    def _scan_poc_imports(poc_script: str) -> List[str]:
+        """从 PoC 代码中扫描 import 语句，提取第三方依赖包名。
+
+        解析 `import xxx` 和 `from xxx import yyy` 两种形式，
+        过滤掉标准库模块，返回需要 pip install 的包名列表。
+        """
+        stdlib = {
+            "argparse", "os", "sys", "json", "re", "time", "hashlib",
+            "base64", "urllib", "socket", "struct", "io", "string",
+            "collections", "itertools", "functools", "pathlib",
+            "subprocess", "threading", "http", "html", "xml", "csv",
+            "math", "random", "datetime", "copy", "textwrap", "logging",
+            "traceback", "ssl", "binascii", "codecs", "gzip", "zlib",
+            "shutil", "tempfile", "glob", "fnmatch", "stat", "errno",
+            "signal", "abc", "contextlib", "typing", "enum", "dataclasses",
+            "unittest", "pprint", "inspect", "operator", "warnings",
+            "multiprocessing", "concurrent", "asyncio", "selectors",
+            "configparser", "secrets", "hmac", "uuid", "platform",
+            "ctypes", "array", "queue", "heapq", "bisect",
+            "urllib3",  # bundled with requests
+        }
+        # import name → pip package name (common mismatches)
+        import_to_pip = {
+            "bs4": "beautifulsoup4",
+            "cv2": "opencv-python",
+            "PIL": "Pillow",
+            "yaml": "PyYAML",
+            "Crypto": "pycryptodome",
+            "jwt": "PyJWT",
+            "lxml": "lxml",
+            "paramiko": "paramiko",
+            "socks": "PySocks",
+        }
+        deps = set()
+        for line in poc_script.splitlines():
+            line = line.strip()
+            # import xxx / import xxx, yyy
+            m = re.match(r'^import\s+([\w,\s]+)', line)
+            if m:
+                for mod in m.group(1).split(','):
+                    top = mod.strip().split('.')[0]
+                    if top and top not in stdlib:
+                        deps.add(import_to_pip.get(top, top))
+            # from xxx import yyy
+            m = re.match(r'^from\s+([\w.]+)\s+import', line)
+            if m:
+                top = m.group(1).split('.')[0]
+                if top and top not in stdlib:
+                    deps.add(import_to_pip.get(top, top))
+        return list(deps)
+
+    def verify(self, entry: VulhubEntry, poc_script: str, ir: Dict) -> DockerVerificationResult:
         """
         主验证方法：启动 Docker 环境 → 执行 PoC → 分析结果 → 清理
+
+        Args:
+            entry: VulhubEntry
+            poc_script: PoC script text
+            ir: Two-layer IR dict (with 'facts' and 'spec' keys)
         """
         compose_path = Path(entry.docker_config.compose_path)
         sanitized_id = re.sub(r'[^a-z0-9]', '', entry.cve_id.lower())
@@ -933,8 +1330,18 @@ class DockerPoCVerifier:
 
         target_host = entry.docker_config.primary_service
         target_port = entry.docker_config.primary_port
-        success_indicators = analysis.get("success_indicators", [])
-        poc_deps = analysis.get("required_dependencies", [])
+
+        # 从 IR 提取 success_indicators 和 dependencies
+        spec = ir.get('spec', {})
+        success_indicators = []
+        for oracle in spec.get('oracles', []):
+            for s in oracle.get('expected_strings', []):
+                success_indicators.append(s)
+        poc_deps = spec.get('dependencies', [])
+        # 从 PoC 代码本身扫描 import，补全 spec 遗漏的依赖
+        scanned_deps = self._scan_poc_imports(poc_script)
+        if scanned_deps:
+            poc_deps = list(set(poc_deps + scanned_deps))
 
         attacker = None
         network_name = None
@@ -983,11 +1390,23 @@ class DockerPoCVerifier:
             print(f"      [Docker] Result: {status_str} (exit_code={exit_code}, "
                   f"matched={len(matched)}, time={execution_time:.1f}s)")
 
+            # 失败时打印 stderr/stdout 供诊断
+            if not is_success:
+                if stderr.strip():
+                    # 截取最后 800 字符（通常包含完整 traceback）
+                    stderr_preview = stderr.strip()[-800:]
+                    print(f"      [Docker] stderr:\n{stderr_preview}")
+                if stdout.strip():
+                    stdout_preview = stdout.strip()[-400:]
+                    print(f"      [Docker] stdout:\n{stdout_preview}")
+                if not stderr.strip() and not stdout.strip():
+                    print(f"      [Docker] (no output - script produced nothing)")
+
             return DockerVerificationResult(
                 success=is_success,
                 exit_code=exit_code,
-                stdout=stdout[-4000:],   # 保留更多输出供反馈
-                stderr=stderr[-4000:],   # 保留完整 traceback
+                stdout=stdout,
+                stderr=stderr,
                 indicators_matched=matched,
                 execution_time=execution_time,
                 environment_ready=True,
@@ -1213,56 +1632,56 @@ class DockerPoCVerifier:
         except Exception:
             pass
 
-    def build_feedback(self, result: DockerVerificationResult) -> str:
-        """将 Docker 验证结果格式化为反馈文本，供 PoCGenerator 重新生成"""
-        parts = [
-            "## Docker Execution Feedback (REAL environment test - THIS IS THE GROUND TRUTH)",
-            f"Exit code: {result.exit_code}",
-            f"Environment ready: {result.environment_ready}",
-            f"Execution time: {result.execution_time:.1f}s",
-        ]
+    def build_feedback(self, result: DockerVerificationResult, poc_code: str = "",
+                       attempt_num: int = 1, previous_feedbacks: list = None) -> str:
+        """将 Docker 验证结果格式化为反馈文本，供 PoCGenerator 重新生成。
 
-        if result.error_message:
-            parts.append(f"Error: {result.error_message}")
+        不做 rule-based 诊断，完整呈现所有信息，让 LLM 自主分析。
+        """
+        parts = ["## Docker Execution Feedback (attempt {}/{})".format(
+            attempt_num, DockerPoCVerifier.DOCKER_MAX_RETRIES)]
 
-        # stdout 完整输出
+        # 1. 上一次 PoC 完整代码
+        if poc_code:
+            parts.append(f"\n### Your Previous PoC Code:\n```python\n{poc_code}\n```")
+
+        # 2. 完整 stdout
         if result.stdout:
-            parts.append(f"\n### stdout (complete):\n```\n{result.stdout}\n```")
+            parts.append(f"\n### stdout:\n```\n{result.stdout}\n```")
         else:
-            parts.append("\n### stdout: (empty - the script produced no output)")
+            parts.append("\n### stdout: (empty)")
 
-        # stderr 完整输出（关键：包含 traceback）
+        # 3. 完整 stderr
         if result.stderr:
-            parts.append(f"\n### stderr (complete - READ THIS CAREFULLY for errors and tracebacks):\n```\n{result.stderr}\n```")
+            parts.append(f"\n### stderr:\n```\n{result.stderr}\n```")
         else:
             parts.append("\n### stderr: (empty)")
 
-        if result.indicators_matched:
-            parts.append(f"\nMatched indicators: {result.indicators_matched}")
-        else:
-            parts.append("\nNo success indicators matched in output.")
-
-        # 根据 exit_code 和执行时间给出针对性提示
-        hints = []
-        if result.execution_time < 0.5:
-            hints.append("- Script finished in <0.5s, likely crashed on startup (import error, syntax error, or immediate exception)")
-        if result.exit_code == 1:
-            hints.append("- Exit code 1: Python unhandled exception. Check stderr for the full traceback")
-        if result.exit_code == 2:
-            hints.append("- Exit code 2: Likely argparse error (wrong arguments) or syntax error")
-        if result.exit_code == 124:
-            hints.append("- Exit code 124: Script timed out. The exploit may be waiting for a response that never comes (wrong port? wrong endpoint?)")
-        if not result.stdout and not result.stderr:
-            hints.append("- No output at all: script may have been killed or failed to start")
-
-        if hints:
-            parts.append("\n### Diagnostic hints:\n" + "\n".join(hints))
-
+        # 4. 执行元信息
         parts.append(
-            "\n### Instructions:\n"
-            "Fix the PoC based on the REAL execution output above. "
-            "Pay close attention to stderr tracebacks - they show exactly where and why the script failed. "
-            "The target service is accessible at the host:port passed via --host and --port arguments."
+            f"\n### Execution Info:\n"
+            f"- exit_code: {result.exit_code}\n"
+            f"- execution_time: {result.execution_time:.1f}s\n"
+            f"- indicators_matched: {result.indicators_matched if result.indicators_matched else 'none'}"
+        )
+
+        # 5. 历史累积（前几次尝试的摘要）
+        if previous_feedbacks:
+            parts.append("\n### Previous Attempts Summary:")
+            for i, fb in enumerate(previous_feedbacks, 1):
+                parts.append(f"\n**Attempt {i}** (exit_code={fb['exit_code']}):")
+                if fb.get('stdout'):
+                    stdout_summary = fb['stdout'][:500]
+                    parts.append(f"stdout (first 500 chars): {stdout_summary}")
+                if fb.get('stderr'):
+                    stderr_summary = fb['stderr'][:500]
+                    parts.append(f"stderr (first 500 chars): {stderr_summary}")
+
+        # 6. 一句话要求
+        parts.append(
+            "\n### 要求:\n"
+            "分析上述执行结果，找出问题所在，生成修复后的 PoC。"
+            "如果这不是第一次尝试，你必须采取与之前不同的策略。"
         )
 
         return "\n".join(parts)
@@ -1353,8 +1772,8 @@ class DatasetBuilder:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.no_docker = no_docker
 
-        self.ocr_processor = OCRProcessor()
-        self.content_parser = ContentParser(self.ocr_processor)
+        self.image_processor = ImageProcessor()
+        self.content_parser = ContentParser(self.image_processor)
         self.poc_generator = PoCGenerator(api_key=api_key, api_base=api_base)
         self.poc_validator = PoCValidator(api_key=api_key, api_base=api_base)
 
@@ -1370,7 +1789,7 @@ class DatasetBuilder:
 
     def process_cve(self, cve_path: Path, scanner: VulhubScanner,
                     skip_verified: bool = False) -> Optional[VulhubEntry]:
-        """处理单个 CVE"""
+        """处理单个 CVE（IR 中间表示 + 回放式生成流水线）"""
         cve_id = scanner.extract_cve_id(cve_path)
         print(f"  Processing: {cve_id}")
 
@@ -1421,65 +1840,118 @@ class DatasetBuilder:
             original_poc_files=original_poc_files
         )
 
-        # 分析 README
-        print(f"    Analyzing README...")
-        analysis = self.poc_generator.analyze_readme(entry)
+        # ================================================================
+        # Step 0: 预处理 — 带 ID 标注 + HTTP 请求检测
+        # ================================================================
+        print(f"    Step 0: Preprocessing (block IDs, HTTP detection)...")
+        annotated_input, pre_parsed_requests = self.content_parser.build_annotated_input(
+            readme_text=readme_text,
+            code_blocks=code_blocks,
+            images=images,
+            poc_files=original_poc_files,
+            docker_config=docker_config,
+            cve_id=cve_id
+        )
+        print(f"    Detected {len(pre_parsed_requests)} HTTP request blocks")
 
-        # 更新分析结果
-        entry.readme_analysis.vulnerability_type = analysis.get('vulnerability_type', 'other')
-        entry.readme_analysis.service_name = analysis.get('service_name', '')
-        entry.readme_analysis.service_version = analysis.get('service_version', '')
-        entry.readme_analysis.vulnerability_description = analysis.get('vulnerability_description', '')
-        entry.readme_analysis.environment_setup = analysis.get('environment_setup', '')
-        entry.readme_analysis.exploitation_steps = analysis.get('exploitation_steps', [])
-        entry.readme_analysis.success_indicators = analysis.get('success_indicators', [])
+        # ================================================================
+        # Step 1: 两层 IR 提取（事实层 + 可执行层）
+        # ================================================================
+        print(f"    Step 1: Extracting IR (facts + replayable spec)...")
+        ir = self.poc_generator.analyze_readme(entry, annotated_input)
 
+        # 从 IR facts 更新 entry 元数据
+        facts = ir.get('facts', {})
+        service_info = facts.get('service', {})
+        entry.readme_analysis.vulnerability_type = facts.get('vulnerability_type', 'other')
+        entry.readme_analysis.service_name = service_info.get('name', '')
+        entry.readme_analysis.service_version = service_info.get('version', '') or ''
+        root_cause = facts.get('root_cause', {})
+        entry.readme_analysis.vulnerability_description = root_cause.get('description', '')
+
+        # 从 IR spec 更新
+        spec = ir.get('spec', {})
+        entry.readme_analysis.exploitation_steps = spec.get('attack_sequence_summary', [])
+        # 从 oracles 提取 success indicators
+        success_indicators = []
+        for oracle in spec.get('oracles', []):
+            for s in oracle.get('expected_strings', []):
+                success_indicators.append(s)
+        entry.readme_analysis.success_indicators = success_indicators
+
+        num_requests = len(spec.get('requests', []))
+        num_oracles = len(spec.get('oracles', []))
         print(f"    Type: {entry.readme_analysis.vulnerability_type}")
         print(f"    Service: {entry.readme_analysis.service_name}")
+        print(f"    Spec: {num_requests} requests, {num_oracles} oracles")
+        if facts.get('missing_information'):
+            print(f"    Missing info: {facts['missing_information']}")
 
-        # === Step 1: 生成初始 PoC ===
-        print(f"    Generating PoC...")
-        poc = self.poc_generator.generate_poc(entry, analysis)
+        # ================================================================
+        # Step 2: 回放式 PoC 生成
+        # ================================================================
+        print(f"    Step 2: Generating PoC (replay-based)...")
+        poc = self.poc_generator.generate_poc(entry, ir)
 
         if poc.validation_status == "failed":
             print(f"    PoC generation failed")
             entry.poc_script = poc
             return entry
 
-        # === Step 2: LLM 自检循环（二元：正确/不正确） ===
-        print(f"    LLM self-check...")
+        # ================================================================
+        # Step 3: 逐项对账验证循环
+        # ================================================================
         entry.poc_script = poc
 
-        for llm_attempt in range(PoCValidator.MAX_RETRIES):
-            validation = self.poc_validator.validate(entry, analysis)
-            entry.poc_script.llm_attempts = llm_attempt + 1
+        # 判断 spec 是否足够完整来做有意义的对账
+        missing_info = ir.get('facts', {}).get('missing_information', [])
+        spec_requests = ir.get('spec', {}).get('requests', [])
+        spec_incomplete = len(missing_info) >= 3 or len(spec_requests) == 0
 
-            if validation.is_valid:
-                entry.poc_script.validation_status = "llm_passed"
-                entry.poc_script.validation_notes = validation.summary
-                print(f"    LLM passed (attempt {llm_attempt + 1})")
-                break
-
-            # LLM 发现问题 → 用反馈修正后再检
-            print(f"    LLM found issues (attempt {llm_attempt + 1}): {validation.summary}")
-            feedback = self.poc_validator.build_feedback(validation)
-            poc = self.poc_generator.generate_poc(entry, analysis, feedback)
-            entry.poc_script = poc
+        if spec_incomplete:
+            # Spec 缺失太多信息，LLM 对账必然失败（PoC 必须填补 spec 没有的细节）
+            # 跳过 LLM 验证，直接进 Docker 验证（最终判定标准）
+            print(f"    Step 3: Skipped (spec has {len(missing_info)} missing items, "
+                  f"{len(spec_requests)} requests — too incomplete for meaningful diff)")
+            entry.poc_script.validation_status = "spec_incomplete"
+            entry.poc_script.validation_notes = f"Spec too incomplete ({len(missing_info)} missing items), skipping LLM verification"
         else:
-            # LLM 自检多次仍有问题，标记但仍继续送 Docker 验证
-            entry.poc_script.validation_status = "llm_failed"
-            entry.poc_script.validation_notes = f"LLM self-check failed after {PoCValidator.MAX_RETRIES} attempts: {validation.summary}"
-            print(f"    LLM self-check exhausted, proceeding to Docker anyway")
+            print(f"    Step 3: Spec-based verification...")
+            for llm_attempt in range(PoCValidator.MAX_RETRIES):
+                validation = self.poc_validator.validate(entry, ir)
+                entry.poc_script.llm_attempts = llm_attempt + 1
 
-        # === Step 3-5: Docker 实战验证循环（最终判定） ===
+                if validation.is_valid:
+                    entry.poc_script.validation_status = "llm_passed"
+                    entry.poc_script.validation_notes = validation.summary
+                    print(f"    Verification PASSED (attempt {llm_attempt + 1})")
+                    break
+
+                # 对账发现问题 → 用反馈修正后再验证
+                print(f"    Verification found issues (attempt {llm_attempt + 1}): {validation.summary}")
+                feedback = self.poc_validator.build_feedback(validation)
+                poc = self.poc_generator.generate_poc(entry, ir, feedback)
+                entry.poc_script = poc
+            else:
+                # 验证多次仍有问题，标记但仍继续送 Docker 验证
+                entry.poc_script.validation_status = "llm_failed"
+                entry.poc_script.validation_notes = f"Spec verification failed after {PoCValidator.MAX_RETRIES} attempts: {validation.summary}"
+                print(f"    Spec verification exhausted, proceeding to Docker anyway")
+
+        # ================================================================
+        # Step 4-6: Docker 实战验证循环（最终判定）
+        # ================================================================
         if self.docker_verifier and entry.poc_script.validation_status != "failed":
-            print(f"    Docker verification...")
+            print(f"    Step 4-6: Docker verification...")
             docker_verified = False
+
+            docker_feedback_history = []  # 累积每次尝试的摘要
 
             for docker_attempt in range(DockerPoCVerifier.DOCKER_MAX_RETRIES):
                 print(f"    Docker attempt {docker_attempt + 1}/{DockerPoCVerifier.DOCKER_MAX_RETRIES}...")
+                current_poc_code = entry.poc_script.script
                 docker_result = self.docker_verifier.verify(
-                    entry, entry.poc_script.script, analysis
+                    entry, current_poc_code, ir
                 )
 
                 if docker_result.success:
@@ -1493,13 +1965,25 @@ class DatasetBuilder:
                     print(f"    Docker VERIFIED! (attempt {docker_attempt + 1})")
                     break
 
-                # 用真实错误输出重新生成
-                docker_feedback = self.docker_verifier.build_feedback(docker_result)
+                # 保存本次尝试摘要到历史
+                docker_feedback_history.append({
+                    'exit_code': docker_result.exit_code,
+                    'stdout': docker_result.stdout,
+                    'stderr': docker_result.stderr,
+                })
+
+                # 用完整信息（含 PoC 代码和历史）重新生成
+                docker_feedback = self.docker_verifier.build_feedback(
+                    docker_result,
+                    poc_code=current_poc_code,
+                    attempt_num=docker_attempt + 1,
+                    previous_feedbacks=docker_feedback_history[:-1] if len(docker_feedback_history) > 1 else None,
+                )
                 print(f"    Docker failed, regenerating with real error feedback...")
-                poc = self.poc_generator.generate_poc(entry, analysis, docker_feedback)
+                poc = self.poc_generator.generate_poc(entry, ir, docker_feedback)
                 entry.poc_script = poc
 
-            # === Step 6: 保存验证通过的 PoC 到 sample 目录 ===
+            # 保存验证通过的 PoC 到 sample 目录
             if docker_verified:
                 self.docker_verifier.save_verified_poc(entry.poc_script.script, cve_path)
             else:
@@ -1571,8 +2055,11 @@ class DatasetBuilder:
                 # 代码块
                 "code_blocks": json.dumps([asdict(cb) for cb in entry.readme_analysis.code_blocks], ensure_ascii=False),
 
-                # 图片 OCR 内容
-                "image_ocr_content": json.dumps([asdict(img) for img in entry.readme_analysis.images], ensure_ascii=False),
+                # 图片元数据（不含 base64 数据，避免 parquet 过大）
+                "image_info": json.dumps([
+                    {"image_path": img.image_path, "description": img.description}
+                    for img in entry.readme_analysis.images
+                ], ensure_ascii=False),
 
                 # 原有 PoC 文件
                 "original_poc_files": json.dumps(entry.original_poc_files, ensure_ascii=False),
@@ -1642,7 +2129,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process all CVEs with Tinker + Qwen3 (default)
+  # Process all CVEs with OpenAI gpt-5.2-codex (default)
   python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ~/data/cve_vulhub
 
   # Process first 10 CVEs (for testing)
@@ -1654,8 +2141,11 @@ Examples:
   # Incremental run: skip already verified samples
   python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ~/data/cve_vulhub --skip-verified
 
+  # Use custom models
+  python vulhub_dataset_builder.py --model gpt-5.2-codex --chat_model gpt-5.2-2025-12-11
+
   # Use a different OpenAI-compatible API
-  python vulhub_dataset_builder.py --api_base https://api.openai.com/v1 --model gpt-4o --api_key sk-xxx
+  python vulhub_dataset_builder.py --api_base https://custom-api.example.com/v1 --model custom-model --api_key sk-xxx
 """
     )
     parser.add_argument("--vulhub_path", type=str, default="~/vulhub",
@@ -1665,11 +2155,13 @@ Examples:
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of CVEs to process (for testing)")
     parser.add_argument("--model", type=str, default=None,
-                        help=f"Model to use (default: {TINKER_DEFAULT_MODEL})")
+                        help=f"Completions model for PoC generation/validation (default: {DEFAULT_MODEL})")
+    parser.add_argument("--chat_model", type=str, default=None,
+                        help=f"Chat model for IR extraction with Vision (default: {DEFAULT_CHAT_MODEL})")
     parser.add_argument("--api_key", type=str, default=None,
-                        help="API key (default: from TINKER_API_KEY or OPENAI_API_KEY env)")
+                        help="API key (default: from OPENAI_API_KEY env)")
     parser.add_argument("--api_base", type=str, default=None,
-                        help=f"API base URL (default: TINKER_API_BASE env or {TINKER_BASE_URL})")
+                        help=f"API base URL (default: OPENAI_API_BASE env or {OPENAI_BASE_URL})")
     parser.add_argument("--no-docker", action="store_true",
                         help="Disable Docker verification (LLM-only mode)")
     parser.add_argument("--skip-verified", action="store_true",
@@ -1678,9 +2170,10 @@ Examples:
     args = parser.parse_args()
 
     # 解析 API 配置
-    api_key = args.api_key or os.getenv("TINKER_API_KEY") or os.getenv("OPENAI_API_KEY")
-    api_base = args.api_base or os.getenv("TINKER_API_BASE") or TINKER_BASE_URL
-    model = args.model or TINKER_DEFAULT_MODEL
+    api_key = args.api_key or os.getenv("OPENAI_API_KEY")
+    api_base = args.api_base or os.getenv("OPENAI_API_BASE") or OPENAI_BASE_URL
+    model = args.model or DEFAULT_MODEL
+    chat_model = args.chat_model or DEFAULT_CHAT_MODEL
 
     print("=" * 60)
     print("Vulhub Dataset Builder v2.0")
@@ -1688,8 +2181,8 @@ Examples:
     print(f"Vulhub path: {args.vulhub_path}")
     print(f"Output dir: {args.output_dir}")
     print(f"API base: {api_base}")
-    print(f"Model: {model}")
-    print(f"OCR available: {OCR_AVAILABLE}")
+    print(f"Completions model (PoC gen/validation): {model}")
+    print(f"Chat model (IR extraction + Vision): {chat_model}")
     print(f"Docker verification: {'disabled' if args.no_docker else 'enabled'}")
     print(f"Skip verified: {args.skip_verified}")
     if args.limit:
@@ -1698,7 +2191,7 @@ Examples:
 
     # 检查 API key
     if not api_key:
-        print("Error: API key not found. Set TINKER_API_KEY (or OPENAI_API_KEY) environment variable or use --api_key")
+        print("Error: API key not found. Set OPENAI_API_KEY environment variable or use --api_key")
         return 1
 
     try:
@@ -1709,6 +2202,7 @@ Examples:
 
         # 更新模型设置
         builder.poc_generator.model = model
+        builder.poc_generator.chat_model = chat_model
         builder.poc_validator.model = model
 
         # 构建数据集
