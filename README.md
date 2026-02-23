@@ -8,7 +8,7 @@
 - ✅ **统一环境接口**：支持 Vulhub + CTF (CVE-bench) 混合训练
 - ✅ **跨环境能力迁移**：Agent 学习通用漏洞利用能力，而非特定环境技巧
 - ✅ **标准化接口**：遵循 Gymnasium 规范，易于扩展新数据源
-- ✅ **复合奖励机制**：中间奖励 + 文本过程分数 + 视觉结果分数
+- ✅ **BLEU-based 奖励机制**：对比 Agent 命令序列与 Ground Truth PoC 脚本的 BLEU 相似度
 - ✅ **自动 PoC 生成**：使用 GPT-4o 从 README 自动生成可执行 Python PoC
 - ✅ **向后兼容**：现有训练代码无需修改
 
@@ -85,10 +85,10 @@ VulRL/
 │       ↕                   │       ↕                          │
 │  Attacker Container       │  Attacker Container              │
 ├─────────────────────────────────────────────────────────────┤
-│                  Reward Mechanism (保留)                     │
+│                  Reward Mechanism (BLEU-based)              │
 ├─────────────────────────────────────────────────────────────┤
-│  StepJudge (中间奖励)  →  TrajectoryJudge (文本过程)         │
-│                       →  LLM1Judge (视觉结果)                │
+│  RewardRouter → VulhubReward (BLEU)                         │
+│    BLEU(Agent命令序列, GT PoC脚本) → reward ∈ [0, 1]        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -382,27 +382,19 @@ def build_config(self) -> dict:
 | **其他** | `dispatcher.strategy` | `async_pipeline` | 调度策略 | 第 227 行 |
 | | `logging.backend` | `local` | 日志后端 | 第 230 行 |
 
-### 环境配置 (`cve_exploit_env.py`)
+### 环境配置
 
-#### EnvConfig 类（第 40-63 行）
+环境配置通过 `env_config` JSON 传入 SecurityEnv，包含以下字段：
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| `cve_id` | `str` | CVE 编号 |
-| `vulhub_path` | `str` | Vulhub 相对路径 |
-| `service_port` | `int` | 服务端口 |
-| `ground_truth_images` | `List[str]` | Ground Truth 图片路径 |
+| `task_id` | `str` | CVE 编号（如 `CVE-2016-3088`） |
+| `task_type` | `str` | 任务类型（`vulhub` / `ctf`） |
+| `target_host` | `str` | 目标服务名 |
+| `target_port` | `int` | 目标端口 |
 | `max_steps` | `int` | 最大步数（默认 30） |
-| `timeout` | `int` | 命令超时（默认 30 秒） |
-
-#### LLM1Judge 配置（第 103-114 行）
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `api_key` | `$OPENAI_API_KEY` | OpenAI API Key |
-| `model` | `gpt-4o` | 评估模型 |
-| `api_endpoint` | `https://api.openai.com/v1/chat/completions` | API 端点 |
-| `cache_dir` | `/tmp/llm1_cache` | 缓存目录 |
+| `poc_info` | `Dict` | PoC 信息（用于 BLEU reward 计算） |
+| `backend_config` | `Dict` | 后端配置（vulhub_path 等） |
 
 ### Ray 配置 (`main_training.py`)
 
@@ -475,43 +467,75 @@ def build_config(self) -> dict:
 
 ## 奖励机制
 
-### 三层复合奖励（完整保留）
+### BLEU-based Reward（当前实现）
 
-统一环境**完全保留**了现有的复合奖励机制：
+当前奖励系统使用 **BLEU 分数**衡量 Agent 执行的命令序列与 Ground Truth PoC 脚本之间的相似度。
 
-#### 1. 中间奖励（StepJudge - GPT-4o-mini）
-- **每步评估**：评估每个动作的贡献度
-- **分数范围**：0-40 分/步
-- **类型分类**：discovery / testing / exploitation / duplicate
+**代码位置**：`SkyRL/skyrl-train/vulrl_inside_skyrl/vulrl/reward/`
 
-#### 2. 文本过程分数（TrajectoryJudge - GPT-4o）
-- **轨迹评估**：评估整体执行逻辑
-- **评估维度**：logical_flow / completeness / efficiency
-- **输出**：process_score (0-1)
+#### 计算流程
 
-#### 3. 视觉结果分数（LLM1Judge - GPT-4o Vision）
-- **视觉比较**：对比 Agent 截图 vs Ground Truth
-- **输出**：result_score (0-1)
-
-#### 总奖励计算
-
-```python
-# 中间奖励总和
-intermediate_total = sum(step_rewards)
-
-# 融合最终分数
-final_score = 0.4 * text_score + 0.6 * vision_score
-final_reward = final_score * 100
-
-# 总奖励
-total_reward = intermediate_total + final_reward
+```
+Episode 结束
+    ↓
+从 trajectory 提取 Agent 的所有 bash/http 命令 → actions_text
+    ↓
+从 train.parquet 加载该 CVE 的 Ground Truth PoC 脚本 → ground_truth
+    ↓
+tokenize 两段文本（小写化，按空格和代码分隔符切分）
+    ↓
+计算 BLEU-2 和 BLEU-4（无 brevity penalty）
+    ↓
+线性映射 + 加权组合 → reward ∈ [0, 1]
 ```
 
-### 优势
+#### 奖励公式
 
-- ✅ **避免稀疏奖励**：中间奖励引导探索
-- ✅ **平衡过程与结果**：既看执行过程，也看最终效果
-- ✅ **跨环境通用**：Vulhub 和 CTF 使用相同的奖励计算
+```python
+# 1. 计算 BLEU 分数（无 brevity penalty）
+bleu2 = BLEU(agent_tokens, poc_tokens, max_n=2)
+bleu4 = BLEU(agent_tokens, poc_tokens, max_n=4)
+
+# 2. 线性映射到 [0, 1]（过滤噪声，防止饱和）
+score2 = linear_map(bleu2, baseline=0.03, cap=0.30)  # <0.03→0, >0.30→1
+score4 = linear_map(bleu4, baseline=0.01, cap=0.20)  # <0.01→0, >0.20→1
+
+# 3. 加权组合
+reward = 0.7 * score2 + 0.3 * score4
+```
+
+#### 设计考量
+
+| 设计决策 | 原因 |
+|---------|------|
+| 不用 brevity penalty | Agent 输出的是 bash 命令，PoC 是 Python 脚本，格式不同导致长度天然不同 |
+| BLEU-2 权重 (0.7) > BLEU-4 (0.3) | bi-gram 在跨格式比较中更稳定，4-gram 匹配率天然很低 |
+| baseline 阈值 | 过滤随机命令产生的噪声匹配 |
+| cap 上限 | 避免高分饱和，保持梯度信号 |
+
+#### Reward Router
+
+系统通过 `RewardRouter` 按 `task_type` 路由到不同实现：
+
+| task_type | 实现类 | 状态 |
+|-----------|--------|------|
+| `vulhub` | `VulhubReward` | BLEU-based，已实现 |
+| `cvebench` | `CVEBenchReward` | Placeholder（返回 0.0） |
+| `xbow` | `XbowReward` | Placeholder（返回 0.0） |
+
+#### 调用链路
+
+```python
+SecurityEnv.step(action)
+    ↓ episode 结束
+RewardRouter.compute_reward(trajectory, task_id)
+    ↓ task_type == "vulhub"
+VulhubReward.compute(trajectory, task_id)
+    ↓
+BLEU(Agent 命令序列, GT PoC 脚本) → reward ∈ [0, 1]
+```
+
+> **注意**：`infra/cve_exploit_env.py` 和 `infra/security_env.py` 中仍保留旧的三层 LLM Judge 代码（StepJudge / TrajectoryJudge / LLM1Judge），但训练实际使用的是 `vulrl_inside_skyrl/` 下的新版 SecurityEnv + BLEU reward。旧代码仅作历史参考。
 
 ## 常见问题
 
@@ -577,11 +601,16 @@ rm -rf ~/checkpoints/cve_agent
 "epochs": 50,  # 增加到 50 轮
 ```
 
-### 使用不同的 LLM 判断器
+### 调整 BLEU Reward 参数
 
 ```python
-# cve_exploit_env.py LLM1Judge.__init__()
-self.model = "gpt-4o-mini"  # 使用更便宜的模型
+# vulrl_inside_skyrl/vulrl/reward/task_specific/vulhub_reward.py
+BLEU2_BASELINE = 0.03   # BLEU-2 低于此值视为噪声，reward=0
+BLEU2_CAP = 0.30         # BLEU-2 高于此值视为满分，reward=1
+BLEU4_BASELINE = 0.01
+BLEU4_CAP = 0.20
+WEIGHT_BLEU2 = 0.7       # BLEU-2 权重
+WEIGHT_BLEU4 = 0.3       # BLEU-4 权重
 ```
 
 ## 文件说明
@@ -683,15 +712,18 @@ VulhubScanner → ContentParser → PoCGenerator → PoCValidator → DatasetWri
 | `CTFToUnifiedConverter` | `ctf_to_skyrl_parquet()` | CVE-bench → 7 列 SkyRL parquet |
 | `CTFToUnifiedConverter` | `convert_cvebench()` | CVE-bench → JSON（旧方式） |
 
-### cve_exploit_env.py
+### cve_exploit_env.py（旧版，仅作历史参考）
 
-RL 环境实现，继承 SkyRL 的 `BaseTextEnv`。
+旧版 RL 环境实现，包含已弃用的三层 LLM Judge 奖励系统。
 
-**主要类**：
-- `CVEExploitEnv`：主环境类
-- `LLM1Judge`：LLM 视觉判断器
-- `ScreenshotGenerator`：截图生成器
-- `EnvConfig`：环境配置
+**主要类**（已弃用，不再用于训练）：
+- `CVEExploitEnv`：旧版主环境类
+- `LLM1Judge`：LLM 视觉判断器（已被 BLEU reward 替代）
+- `StepJudge`：步骤判断器（已被 BLEU reward 替代）
+- `TrajectoryJudge`：轨迹判断器（已被 BLEU reward 替代）
+- `ScreenshotGenerator`：截图生成器（已弃用）
+
+> 当前训练使用 `vulrl_inside_skyrl/vulrl/env/security_env.py` + `VulhubReward`（BLEU-based）。
 
 ### main_training.py
 

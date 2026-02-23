@@ -1,5 +1,10 @@
 """
-Unified Security Environment Training Entry Point for SkyRL
+[DEPRECATED] 此文件已弃用。
+实际训练入口已迁移至: vulrl_inside_skyrl/main_training.py
+该入口注册 vulrl.env.security_env:SecurityEnv（新版），使用 BLEU-based reward。
+
+---
+Unified Security Environment Training Entry Point for SkyRL (原始说明)
 用法: uv run --isolated --extra vllm python main_training.py
 
 这是SkyRL训练的入口点，负责：

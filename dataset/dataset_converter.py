@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Optional, Union
 sys.path.insert(0, str(Path(__file__).parent.parent / "infra"))
 from env_types import StandardEnvConfig
 
-# ── SkyRL 工具定义（与 cve_exploit_env.py 保持一致，避免重依赖） ──────────
+# ── SkyRL 工具定义 ──────────────────────────────────────────────────────────
 SKYRL_TOOL_DEFINITIONS = [
     {
         "name": "bash",

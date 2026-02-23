@@ -1,5 +1,10 @@
 """
-SkyRL Unified Security Training Launcher
+[DEPRECATED] 此文件已弃用。
+实际训练入口已迁移至: vulrl_inside_skyrl/main_training.py
+该入口注册 vulrl.env.security_env:SecurityEnv（新版），使用 BLEU-based reward。
+
+---
+SkyRL Unified Security Training Launcher (原始说明)
 完整的训练启动器，支持 Vulhub 和 CTF 混合训练
 
 用法:
