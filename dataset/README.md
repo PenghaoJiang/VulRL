@@ -69,7 +69,7 @@ docker ps
 ### 运行
 
 ```bash
-# 测试模式：处理前 3 个 CVE（含 Docker 验证）
+# 测试模式：随机抽样 3 个 CVE（含 Docker 验证）
 python vulhub_dataset_builder.py --vulhub_path ~/vulhub --output_dir ~/data/cve_vulhub --limit 3
 
 # 处理所有 CVE
@@ -91,7 +91,7 @@ python vulhub_dataset_builder.py --api_base https://api.openai.com/v1 --model gp
 |------|--------|------|
 | `--vulhub_path` | `~/vulhub` | Vulhub 仓库路径 |
 | `--output_dir` | `~/data/cve_vulhub` | 输出数据集路径 |
-| `--limit` | `None` | 限制处理的 CVE 数量（用于测试） |
+| `--limit` | `None` | 随机抽样处理的 CVE 数量（用于测试） |
 | `--model` | `Qwen/Qwen3-235B-A22B-Instruct-2507` | 使用的 LLM 模型 |
 | `--api_key` | `$TINKER_API_KEY` | API Key |
 | `--api_base` | Tinker API URL | API base URL（支持任意 OpenAI 兼容接口） |
@@ -306,7 +306,7 @@ docker ps
 
 ### 4. 内存不足
 
-处理大量 CVE 时可能内存不足，使用 `--limit` 参数分批处理：
+处理大量 CVE 时可能内存不足，使用 `--limit` 参数随机抽样分批处理：
 ```bash
 python vulhub_dataset_builder.py --limit 50
 ```
