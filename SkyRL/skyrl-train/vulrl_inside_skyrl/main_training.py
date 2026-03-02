@@ -33,6 +33,12 @@ def skyrl_entrypoint(cfg: DictConfig):
         entry_point="vulrl.env.security_env:SecurityEnv",
     )
     
+    # Also register as CVEExploitEnv for compatibility
+    register(
+        id="CVEExploitEnv",
+        entry_point="vulrl.env.security_env:SecurityEnv",
+    )
+    
     # Start training experiment
     exp = BasePPOExp(cfg)
     exp.run()

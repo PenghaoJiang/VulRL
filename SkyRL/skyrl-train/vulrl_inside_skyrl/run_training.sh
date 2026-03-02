@@ -17,6 +17,9 @@ set -e  # Exit on error
 #   Edit variables below or set via environment before running
 # =============================================================================
 
+# Add uv to PATH
+export PATH="$HOME/.local/bin:$PATH"
+
 # Cleanup function - runs on exit (success or failure)
 cleanup() {
     echo ""
@@ -36,12 +39,12 @@ echo "============================================================"
 # -----------------------------------------------------------------------------
 
 # Model configuration
-: "${MODEL_PATH:=/mnt/e/models/qwen2.5-1.5b}"  # Local model path
+: "${MODEL_PATH:=/data1/jph/models/Qwen2.5-1.5B-Instruct}"  # Local model path
 : "${MODEL_NAME:=Qwen/Qwen2.5-1.5B-Instruct}"  # Fallback to HF auto-download
 
 # Training data (create minimal test data if not provided)
 # Use absolute path so Ray workers can find it
-: "${TRAIN_DATA:=$(pwd)/test_data.parquet}"
+: "${TRAIN_DATA:=/data1/jph/VulRL/SkyRL/skyrl-train/vulrl_inside_skyrl/train.parquet}"
 
 # Training parameters - MINIMAL FOR TESTING
 : "${EPOCHS:=1}"                    # Just 1 epoch for workflow test
@@ -52,7 +55,7 @@ echo "============================================================"
 
 # System configuration
 : "${NUM_GPUS:=1}"
-: "${CHECKPOINT_DIR:=$HOME/checkpoints/vulrl_test}"
+: "${CHECKPOINT_DIR:=/data1/jph/ckpts/vulrl_test}"
 : "${INFERENCE_BACKEND:=vllm}"
 
 # Logging
@@ -226,6 +229,21 @@ export PYTHONPATH="$(pwd):${PYTHONPATH}"
 echo "✓ PYTHONPATH: $PYTHONPATH"
 
 # -----------------------------------------------------------------------------
+# Docker Cleanup (before starting training)
+# -----------------------------------------------------------------------------
+
+echo ""
+echo "Cleaning up old Docker resources..."
+# Stop and remove all containers with "vulhub" or "vulpoc" in their name
+docker ps -a --format "{{.ID}} {{.Names}}" | grep -E "vulhub|vulpoc" | awk '{print $1}' | xargs -r docker stop
+docker ps -a --format "{{.ID}} {{.Names}}" | grep -E "vulhub|vulpoc" | awk '{print $1}' | xargs -r docker rm
+# Remove networks created by vulhub/vulpoc (excluding default/app networks)
+docker network ls --format "{{.ID}} {{.Name}}" | grep -E "vulhub|vulpoc" | awk '{print $1}' | xargs -r docker network rm
+# Prune unused networks (excluding default/app networks)
+docker network prune -f --filter "until=24h" --filter "label!=com.docker.compose.project" --filter "name!=bridge" --filter "name!=host" --filter "name!=none" --filter "name!=my-tech-blog_tech-blog-network" --filter "name!=supabase_network_SolarDemo"
+echo "✓ Docker cleanup complete"
+
+# -----------------------------------------------------------------------------
 # Launch Training
 # -----------------------------------------------------------------------------
 
@@ -266,7 +284,8 @@ uv run --directory .. --extra $INFERENCE_BACKEND \
   ++trainer.learning_rate=$LEARNING_RATE \
   ++trainer.epochs=$EPOCHS \
   ++trainer.eval_interval=-1 \
-  ++trainer.checkpoint_dir=$CHECKPOINT_DIR \
+  ++trainer.ckpt_path=$CHECKPOINT_DIR \
+  ++trainer.resume_mode=latest \
   ++trainer.save_interval=100 \
   ++trainer.policy.model.path=$MODEL_TO_USE \
   ++trainer.policy.model.lora.rank=8 \
@@ -277,7 +296,7 @@ uv run --directory .. --extra $INFERENCE_BACKEND \
   ++trainer.placement.policy_num_nodes=1 \
   ++trainer.placement.policy_num_gpus_per_node=$NUM_GPUS \
   ++trainer.placement.ref_num_nodes=1 \
-  ++trainer.placement.ref_num_gpus_per_node=$NUM_GPUS \
+  ++trainer.placement.ref_num_gpus_per_node=1 \
   ++trainer.placement.critic_num_nodes=1 \
   ++trainer.placement.critic_num_gpus_per_node=$NUM_GPUS \
   ++trainer.placement.reward_num_nodes=1 \
@@ -285,7 +304,7 @@ uv run --directory .. --extra $INFERENCE_BACKEND \
   ++generator.num_inference_engines=$NUM_GPUS \
   ++generator.inference_backend=$INFERENCE_BACKEND \
   ++generator.inference_engine_tensor_parallel_size=1 \
-  ++generator.gpu_memory_utilization=0.85 \
+  ++generator.gpu_memory_utilization=0.40 \
   ++generator.max_turns=$MAX_TURNS \
   +generator.engine_init_kwargs.max_model_len=2048 \
   +generator.engine_init_kwargs.enable_chunked_prefill=False \

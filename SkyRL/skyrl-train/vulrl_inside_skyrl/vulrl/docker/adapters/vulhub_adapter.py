@@ -33,7 +33,7 @@ class VulhubAdapter(BaseEnvAdapter):
             vulhub_path = config.get("vulhub_path", "")
 
         self.vulhub_path = vulhub_path
-        self.compose_path = Path.home() / "vulhub" / vulhub_path
+        self.compose_path = Path("/data1/jph/vulhub") / vulhub_path
 
         # Docker 客户端
         self.docker_client = docker.from_env()
@@ -73,18 +73,25 @@ class VulhubAdapter(BaseEnvAdapter):
             raise FileNotFoundError(f"Vulhub path not found: {self.compose_path}")
 
         # 启动 docker-compose
-        result = subprocess.run(
-            self.compose_cmd + ["-p", self.project_name, "up", "-d"],
-            cwd=self.compose_path,
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
+        try:
+            result = subprocess.run(
+                self.compose_cmd + ["-p", self.project_name, "up", "-d"],
+                cwd=self.compose_path,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
 
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to start Vulhub: {result.stderr}")
+            if result.returncode != 0:
+                raise RuntimeError(f"Failed to start Vulhub: {result.stderr}")
+        except (subprocess.TimeoutExpired, RuntimeError) as e:
+            print(f"[VulhubAdapter] Error starting Vulhub: {e}")
+            raise RuntimeError(f"Failed to start Vulhub: {e}")
 
         time.sleep(8)  # 等待服务启动
+
+        # Clean up stale containers before discovering
+        self._cleanup_stale_containers()
 
         # 发现容器
         self._discover_containers()
@@ -349,3 +356,22 @@ CMD ["tail", "-f", "/dev/null"]
             "protocol": self.config.get("target_protocol", "http"),
             "url": self.service_url or "",
         }
+
+    def _cleanup_stale_containers(self):
+        """清理可能有固定名称的旧容器"""
+        stale_container_names = [
+            "aiohttp",
+            "nacos-standalone-mysql",
+            "mysql"
+        ]
+        
+        for container_name in stale_container_names:
+            try:
+                container = self.docker_client.containers.get(container_name)
+                print(f"[VulhubAdapter] Removing stale container: {container_name}")
+                container.stop()
+                container.remove()
+            except docker.errors.NotFound:
+                pass  # Container doesn't exist, that's fine
+            except Exception as e:
+                print(f"[VulhubAdapter] Warning: Failed to remove {container_name}: {e}")
