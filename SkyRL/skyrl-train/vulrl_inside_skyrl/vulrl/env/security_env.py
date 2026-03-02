@@ -76,8 +76,13 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         # Trajectory storage (for reward computation)
         self.trajectory = []
         
-        # Setup adapter
-        self.adapter.setup()
+        # Setup adapter with error handling
+        try:
+            self.adapter.setup()
+        except RuntimeError as e:
+            print(f"[SecurityEnv] WARNING: Failed to setup adapter: {e}")
+            # Mark as failed but don't crash - let training continue
+            self.failed_to_setup = True
         
         print(f"[SecurityEnv] Initialized: task_id={self.task_id}, task_type={self.config.get('task_type')}")
     
@@ -166,7 +171,7 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         if isinstance(action, str):
             std_action = StandardAction(
                 action_type=ActionType.BASH,
-                command=action
+                arguments={"command": action}
             )
         elif isinstance(action, dict):
             std_action = StandardAction(**action)
@@ -200,8 +205,11 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         self._update_progress()
         
         if SKYRL_AVAILABLE:
+            # Extract observation text and format as list of message dicts
+            obs_text = observation.text if hasattr(observation, 'text') else str(observation)
+            observations = [] if done else [{"role": "user", "content": obs_text}]
             return BaseTextEnvStepOutput(
-                observation=observation,
+                observations=observations,
                 reward=reward,
                 done=done,
                 info=info
