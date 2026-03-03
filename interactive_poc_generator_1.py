@@ -1042,7 +1042,7 @@ def _build_agent2_system_prompt(project_name: str, target_containers: List[str],
                                 target_host: str, target_port: int) -> str:
     """Build system prompt for Agent 2 (Verification generation)"""
     containers_str = "\n".join(f"  - {c}" for c in target_containers)
-    
+
     return f"""You are an expert security researcher creating verification scripts.
 
 You have been given:
@@ -1093,15 +1093,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-name", default="{project_name}")
     args = parser.parse_args()
-    
+
     # Use docker exec to check exploit effect
     # Example: Check if marker file exists
     result = subprocess.run(
-        ["docker", "exec", f"{{args.project_name}}-target-1", 
+        ["docker", "exec", f"{{args.project_name}}-target-1",
          "cat", "/tmp/exploit_marker"],
         capture_output=True, text=True
     )
-    
+
     if result.returncode == 0 and "expected_content" in result.stdout:
         print("[+] Verification passed")
         sys.exit(0)
@@ -1582,13 +1582,13 @@ def main():
         epilog="""
 Examples:
   # Single CVE test
-  python interactive_poc_generator_v2.py \\
+  python interactive_poc_generator.py \\
     --vulhub-dir ~/vulhub \\
     --cve-filter "CVE-2021-41773" \\
     --result-dir /tmp/result
 
   # Batch processing
-  python interactive_poc_generator_v2.py \\
+  python interactive_poc_generator.py \\
     --vulhub-dir ~/vulhub \\
     --result-dir ./result \\
     --limit 10
