@@ -706,7 +706,7 @@ The target service is accessible at: {target_host}:{target_port}
 2. Use bash to probe the target, install any needed tools (e.g., Java, Maven, nmap, compiler toolchains)
 3. Reproduce the vulnerability interactively following the README steps
 4. Once reproduction succeeds, package it into a clean poc.py
-5. Test poc.py to confirm it works
+5. Must execute poc.py to confirm it works BEFORE submitting it
 6. If it doesn't work, iterate until it does
 7. Submit poc.py with submit_poc
 8. Submit requirements.txt with submit_requirements (if poc.py needs third-party packages)
@@ -1104,7 +1104,7 @@ def _build_agent2_system_prompt(project_name: str, target_containers: List[str],
 
 You have been given:
 1. A README describing a vulnerability
-2. A working PoC script that exploits the vulnerability
+2. A working PoC script that claims to exploit the vulnerability
 3. The execution trajectory of the PoC generation process
 
 Your task:
@@ -1138,46 +1138,18 @@ CRITICAL: verify.py runs on the HOST machine, NOT in a container.
   * Any persistent change the PoC created
 - Must NOT depend on poc.py output or attacker container
 - Must be robust and handle missing files/containers gracefully
-
-## Example verify.py structure:
-```python
-#!/usr/bin/env python3
-import argparse
-import subprocess
-import sys
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--project-name", default="{project_name}")
-    args = parser.parse_args()
-
-    # Use docker exec to check exploit effect
-    # Example: Check if marker file exists
-    result = subprocess.run(
-        ["docker", "exec", f"{{args.project_name}}-target-1",
-         "cat", "/tmp/exploit_marker"],
-        capture_output=True, text=True
-    )
-
-    if result.returncode == 0 and "expected_content" in result.stdout:
-        print("[+] Verification passed")
-        sys.exit(0)
-    else:
-        print("[-] Verification failed")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
-```
+- MUST contains a True or False verification result in the first line of the script as comment
 
 ## Workflow
 1. Review the README, PoC script, and Agent 1 trajectory
 2. Understand what observable effect the PoC created
+3. Review PoC script to confirm it works or not and validate Agent 1's honesty
 3. Use docker_exec/docker_cp to test if you can detect this effect
-4. Once you understand how to verify, create verify.py
-5. Submit with submit_verification
-6. Submit additional requirements with submit_requirements (if verify.py needs extra packages beyond poc.py)
-7. Call done
+4. Once you understand how to verify, create verify.py, contains all the commands you used to verify the exploit effect
+5. Then execute verify.py to confirm it works or not
+6. Submit with submit_verification
+7. Submit additional requirements with submit_requirements (if verify.py needs extra packages beyond poc.py)
+8. Call done
 
 Remember: You are running FROM THE HOST, not inside a container. Use docker commands to interact with containers.
 """
@@ -1345,7 +1317,7 @@ class VerifyAgentRunner:
         trajectory_summary = []
         for item in agent1_trajectory:
             if item.get("role") == "tool" and len(trajectory_summary) < 10:
-                content = item.get("content", "")[:500]
+                content = item.get("content", "")[-1000:]
                 trajectory_summary.append(f"- Tool output: {content}")
 
         trajectory_text = "\n".join(trajectory_summary[:10])
