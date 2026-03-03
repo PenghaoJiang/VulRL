@@ -1430,6 +1430,40 @@ class InteractivePoCPipelineV2:
         cve_id = scanner.extract_cve_id(cve_dir)
         print(f"\n  Processing: {cve_id}")
 
+        # 0. Check if results already exist
+        cve_result_dir = self.result_dir / cve_id
+        required_files = ["poc.py", "verify.py", "requirements.txt"]
+        if cve_result_dir.exists():
+            existing_files = [f for f in required_files if (cve_result_dir / f).exists()]
+            if len(existing_files) == len(required_files):
+                print(f"    ✓ Results already exist in {cve_result_dir}, skipping to save resources")
+                # Load and return existing bundle
+                try:
+                    poc_script = (cve_result_dir / "poc.py").read_text(encoding="utf-8")
+                    verify_script = (cve_result_dir / "verify.py").read_text(encoding="utf-8")
+                    requirements = (cve_result_dir / "requirements.txt").read_text(encoding="utf-8").strip().split("\n")
+                    requirements = [r.strip() for r in requirements if r.strip()]
+                    
+                    # Load trajectories if available
+                    agent1_traj = []
+                    agent2_traj = []
+                    if (cve_result_dir / "agent_1_traj.json").exists():
+                        with open(cve_result_dir / "agent_1_traj.json", 'r', encoding='utf-8') as f:
+                            agent1_traj = json.load(f)
+                    if (cve_result_dir / "agent_2_traj.json").exists():
+                        with open(cve_result_dir / "agent_2_traj.json", 'r', encoding='utf-8') as f:
+                            agent2_traj = json.load(f)
+                    
+                    return PoCBundle(
+                        poc_script=poc_script,
+                        verify_script=verify_script,
+                        requirements=requirements,
+                        agent1_trajectory=agent1_traj,
+                        agent2_trajectory=agent2_traj
+                    )
+                except Exception as e:
+                    print(f"    ⚠ Warning: Could not load existing results: {e}, will regenerate")
+
         # 1. Parse README
         readme_path = scanner.find_readme(cve_dir)
         if not readme_path:
