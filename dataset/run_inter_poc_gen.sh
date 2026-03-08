@@ -7,191 +7,58 @@ source /data1/jph/VulRL/.venv/bin/activate
 export OPENAI_API_KEY=$(cat /data1/jph/apikey.txt)
 # export OPENAI_API_BASE="https://api.openai.com/v1"  # Optional, defaults to OpenAI
 
-# THe list of 30 cves from different catagory to test the interactive poc generation
-# /data1/jph/vulhub/jboss/CVE-2017-12149 (replaced 1panel/CVE-2024-39907 - post-auth issue)
-# /data1/jph/vulhub/activemq/CVE-2022-41678
-# /data1/jph/vulhub/adminer/CVE-2021-43008
-# /data1/jph/vulhub/airflow/CVE-2020-11978
-# /data1/jph/vulhub/apache-druid/CVE-2021-25646
-# /data1/jph/vulhub/confluence/CVE-2023-22527
-# /data1/jph/vulhub/django/CVE-2020-9402
-# /data1/jph/vulhub/drupal/CVE-2018-7600
-# /data1/jph/vulhub/elasticsearch/CVE-2014-3120
-# /data1/jph/vulhub/flink/CVE-2020-17518
-# /data1/jph/vulhub/gitlab/CVE-2021-22205
-# /data1/jph/vulhub/grafana/CVE-2021-43798
-# /data1/jph/vulhub/influxdb/CVE-2019-20933
-# /data1/jph/vulhub/jenkins/CVE-2018-1000861
-# /data1/jph/vulhub/joomla/CVE-2017-8917
-# /data1/jph/vulhub/kafka/CVE-2023-25194
-# /data1/jph/vulhub/laravel/CVE-2021-3129
-# /data1/jph/vulhub/metabase/CVE-2023-38646
-# /data1/jph/vulhub/mongo-express/CVE-2019-10758
-# /data1/jph/vulhub/mysql/CVE-2012-2122
-# /data1/jph/vulhub/neo4j/CVE-2021-34371
-# /data1/jph/vulhub/nginx/CVE-2017-7529
-# /data1/jph/vulhub/phpmyadmin/CVE-2016-5734
-# /data1/jph/vulhub/redis/CVE-2022-0543
-# /data1/jph/vulhub/shiro/CVE-2010-3863
-# /data1/jph/vulhub/spring/CVE-2017-4971
-# /data1/jph/vulhub/tomcat/CVE-2020-1938
-# /data1/jph/vulhub/weblogic/CVE-2018-2894
-# /data1/jph/vulhub/zabbix/CVE-2016-10134
-# /data1/jph/vulhub/node/CVE-2017-16082
+# ============================================================================
+# Configuration
+# ============================================================================
+CVE_ID="CVE-2017-12635"
+RESULT_DIR="/data1/jph/tmp/result_v2_test"
 
-# folder to save the result of test 30 cves
-result_path="/data1/jph/tmp/result_test_30"
+# Clean previous results for this CVE
+rm -rf "${RESULT_DIR}/${CVE_ID}"
 
-# CVE-2024-39907 (1panel) - Skipped: Post-auth SQLi, requires credentials
-# Replaced with JBoss CVE-2017-12149 (deserialization RCE)
+# ============================================================================
+# Run test
+# ============================================================================
+echo "========== Test: ${CVE_ID} =========="
 python interactive_poc_generator.py \
   --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2017-12149" \
-  --result-dir $result_path
+  --cve-filter "${CVE_ID}" \
+  --result-dir "${RESULT_DIR}" \
+  --max-steps 30 \
+  --service-wait 600
 
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2022-41678" \
-  --result-dir $result_path
+# ============================================================================
+# Verify output
+# ============================================================================
+echo ""
+echo "========== Verifying Output =========="
+CVE_RESULT_DIR="${RESULT_DIR}/${CVE_ID}"
 
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2021-43008" \
-  --result-dir $result_path
+# Check generated files
+echo "[1] Generated files:"
+ls -la "$CVE_RESULT_DIR/" 2>/dev/null || echo "  ERROR: Result directory not found"
 
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2020-11978" \
-  --result-dir $result_path
+# Check trajectory for Phase/Step markers
+echo ""
+echo "[2] Phase and Step markers in trajectory:"
+python3 -c "
+import json, sys
+traj_file = '${CVE_RESULT_DIR}/agent_1_traj.json'
+try:
+    traj = json.load(open(traj_file))
+    for msg in traj:
+        content = msg.get('content', '')
+        if isinstance(content, str) and ('[Phase' in content or '[Step' in content or '[Prep' in content):
+            print(f'  {content[:200]}')
+    print(f'  Total messages in trajectory: {len(traj)}')
+except Exception as e:
+    print(f'  ERROR: {e}')
+"
 
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2021-25646" \
-  --result-dir $result_path
+# Check poc.py exists and has content
+echo ""
+echo "[3] poc.py preview (first 10 lines):"
+head -10 "$CVE_RESULT_DIR/poc.py" 2>/dev/null || echo "  ERROR: poc.py not found"
 
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2023-22527" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2020-9402" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2018-7600" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2014-3120" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2020-17518" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2021-22205" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2021-43798" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2019-20933" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2018-1000861" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2017-8917" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2023-25194" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2021-3129" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2023-38646" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2019-10758" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2012-2122" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2021-34371" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2017-7529" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2016-5734" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2022-0543" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2010-3863" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2017-4971" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2020-1938" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2018-2894" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2016-10134" \
-  --result-dir $result_path
-
-python interactive_poc_generator.py \
-  --vulhub-dir ~/vulhub \
-  --cve-filter "CVE-2017-16082" \
-  --result-dir $result_path
-
-echo "All 30 CVEs processed!"
+echo ""
+echo "========== Test Complete =========="
