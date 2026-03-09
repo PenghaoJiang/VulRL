@@ -1826,14 +1826,22 @@ class VerifyAgentRunner:
 
     def run(self, readme_content: str, poc_script: str, agent1_trajectory: List[Dict],
             cve_id: str, project_name: str, target_containers: List[str],
-            target_host: str, target_port: int) -> VerifyAgentOutput:
+            target_host: str, target_port: int,
+            poc_exit_code: int = None, poc_stdout: str = "",
+            poc_stderr: str = "",
+            extracted_steps: List[Dict] = None,
+            step_results: List[Dict] = None) -> VerifyAgentOutput:
         """Run Agent 2 until completion or max_steps."""
         system_prompt = _build_agent2_system_prompt(
             project_name, target_containers, target_host, target_port
         )
 
         user_content = self._build_user_message(
-            readme_content, poc_script, agent1_trajectory, cve_id
+            readme_content, poc_script, agent1_trajectory, cve_id,
+            poc_exit_code=poc_exit_code, poc_stdout=poc_stdout,
+            poc_stderr=poc_stderr,
+            extracted_steps=extracted_steps,
+            step_results=step_results,
         )
 
         self.conversation = [
@@ -1952,7 +1960,41 @@ class VerifyAgentRunner:
         elif tool_name == "submit_verification":
             script = tool_args.get("script", "")
             self._verify_script = script
-            return "Verification script received. If verify.py needs additional packages beyond poc.py, submit requirements. Otherwise call done."
+
+            # Auto-execute verify.py to force testing before acceptance
+            import tempfile
+            try:
+                tmp_path = tempfile.mktemp(suffix=".py", prefix="verify_")
+                exit_code, write_out = self.host_executor.bash_host(
+                    f"cat > {tmp_path} << 'VERIFY_SCRIPT_EOF'\n{script}\nVERIFY_SCRIPT_EOF"
+                )
+                project_name = self.host_executor.project_name
+                exit_code, stdout, stderr = self.host_executor.bash_host(
+                    f"python3 {tmp_path} --project-name {project_name}",
+                    timeout=30
+                )
+                # Cleanup temp file
+                self.host_executor.bash_host(f"rm -f {tmp_path}")
+
+                exec_result = f"exit_code: {exit_code}"
+                if stdout:
+                    exec_result += f"\nstdout:\n{stdout[:3000]}"
+                if stderr:
+                    exec_result += f"\nstderr:\n{stderr[:1000]}"
+
+                return (
+                    f"Verification script received and auto-executed.\n"
+                    f"--- Execution Result ---\n{exec_result}\n"
+                    f"--- End ---\n"
+                    f"If exit_code is 0, verification passed. If exit_code is 1, the script has issues — "
+                    f"review the output, fix the script, and submit again. "
+                    f"When satisfied, submit requirements if needed, then call done."
+                )
+            except Exception as e:
+                return (
+                    f"Verification script received but auto-execution failed: {e}\n"
+                    f"Please debug the issue, fix the script, and submit again."
+                )
 
         elif tool_name == "submit_requirements":
             reqs = tool_args.get("requirements", "")
@@ -1966,16 +2008,57 @@ class VerifyAgentRunner:
             return f"Unknown tool: {tool_name}"
 
     def _build_user_message(self, readme_content: str, poc_script: str,
-                            agent1_trajectory: List[Dict], cve_id: str) -> str:
+                            agent1_trajectory: List[Dict], cve_id: str,
+                            poc_exit_code: int = None, poc_stdout: str = "",
+                            poc_stderr: str = "",
+                            extracted_steps: List[Dict] = None,
+                            step_results: List[Dict] = None) -> str:
         """Build initial user message for Agent 2."""
-        # Summarize Agent 1 trajectory
-        trajectory_summary = []
-        for item in agent1_trajectory:
-            if item.get("role") == "tool" and len(trajectory_summary) < 10:
-                content = item.get("content", "")[-1000:]
-                trajectory_summary.append(f"- Tool output: {content}")
 
-        trajectory_text = "\n".join(trajectory_summary[:10])
+        # Build PoC execution result section
+        poc_result_section = ""
+        if poc_exit_code is not None:
+            poc_status = "SUCCEEDED" if poc_exit_code == 0 else "FAILED"
+            poc_result_section = f"""
+## PoC Execution Result ({poc_status})
+- exit_code: {poc_exit_code}
+- stdout (last 2000 chars):
+{(poc_stdout or '')[-2000:]}
+- stderr (last 1000 chars):
+{(poc_stderr or '')[-1000:]}
+"""
+
+        # Build structured step results section (from Agent 1 three-phase architecture)
+        steps_section = ""
+        if extracted_steps and step_results:
+            step_lines = []
+            for sr in step_results:
+                step_num = sr.get("step_number", "?")
+                success = sr.get("success", False)
+                summary = sr.get("summary", "")
+                status = "SUCCESS" if success else "FAILED"
+                # Find matching extracted step for description
+                desc = ""
+                for es in extracted_steps:
+                    if es.get("step_number") == step_num:
+                        desc = es.get("description", "")
+                        break
+                step_lines.append(f"  Step {step_num} [{status}]: {desc}\n    Summary: {summary}")
+            steps_section = f"""
+## Agent 1 Exploit Steps and Results
+{chr(10).join(step_lines)}
+"""
+        else:
+            # Fallback to old trajectory summary if no structured data
+            trajectory_summary = []
+            for item in agent1_trajectory:
+                if item.get("role") == "tool" and len(trajectory_summary) < 10:
+                    content = item.get("content", "")[-1000:]
+                    trajectory_summary.append(f"- Tool output: {content}")
+            steps_section = f"""
+## Agent 1 Trajectory Summary (last 10 tool outputs)
+{chr(10).join(trajectory_summary[:10])}
+"""
 
         return f"""# Target: {cve_id}
 
@@ -1986,15 +2069,14 @@ class VerifyAgentRunner:
 ```python
 {poc_script}
 ```
-
-## Agent 1 Trajectory Summary (last 10 tool outputs)
-{trajectory_text}
-
+{poc_result_section}
+{steps_section}
 ## Your Task
-Based on the README and PoC script above, create a verification script (verify.py) that:
+Based on the README, PoC script, and execution results above, create a verification script (verify.py) that:
 1. Runs from the HOST machine (not in a container)
 2. Uses docker exec/cp to check if the exploit effect persists
 3. Returns exit code 0 if verification passes, 1 if it fails
+4. The PoC execution result above tells you whether the exploit actually worked — use this to guide your verification
 
 Start by using docker_exec to explore what observable effects the PoC created, then generate verify.py.
 """
@@ -2173,7 +2255,12 @@ class InteractivePoCPipelineV2:
                 project_name=docker_env.project_name,
                 target_containers=docker_env.target_containers,
                 target_host=docker_env.target_host,
-                target_port=docker_env.target_port
+                target_port=docker_env.target_port,
+                poc_exit_code=poc_exit,
+                poc_stdout=poc_stdout,
+                poc_stderr=poc_stderr,
+                extracted_steps=agent1_output.extracted_steps,
+                step_results=agent1_output.step_results,
             )
 
             if not agent2_output.finished or not agent2_output.verify_script:
