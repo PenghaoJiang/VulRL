@@ -1,0 +1,30 @@
+# vLLM Server Configuration
+
+# Model settings
+model:
+  # Local model path (WSL)
+  path: "/mnt/e/models/qwen2.5-1.5b"
+  # Served model name (used in API requests)
+  name: "qwen2.5-1.5b"
+  
+  # Quantization (optional, saves memory)
+  # quantization: "awq"  # or "gptq", "fp8"
+  
+  # Max model length
+  max_model_len: 4096
+  
+  # GPU memory utilization (0.0 to 1.0)
+  gpu_memory_utilization: 0.9
+
+# Server settings
+server:
+  host: "127.0.0.1"
+  port: 8001
+  
+# Inference settings
+inference:
+  # Disable log stats for cleaner output
+  disable_log_stats: true
+  
+  # Enable prefix caching for better performance
+  enable_prefix_caching: true
