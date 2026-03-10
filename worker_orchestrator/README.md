@@ -11,8 +11,8 @@ Worker Router (FastAPI)
     ↓ Redis Queue
 Worker Units (Subprocesses)
     ↓ Docker Containers
-    ↓ HTTP API
-SkyRL LLM Server (GPU-bound)
+    ↓ Python Client (InferenceEngineClientWrapper)
+vLLM Server (GPU-bound, local Qwen 2.5 1.5B)
 ```
 
 ## 📁 Project Structure
@@ -31,17 +31,35 @@ worker_orchestrator/
 │   └── utils/
 │       ├── logger.py           # File logging
 │       └── exceptions.py       # Custom exceptions
+│
 ├── worker_unit/                # Worker subprocess
 │   ├── main.py                 # Worker entry point
-│   ├── llm_client.py           # LLM HTTP client
 │   ├── docker_manager.py       # Docker operations (demo)
 │   └── reward_calculator.py    # Reward computation
+│
+├── ez_llm_server/              # LLM server (vLLM wrapper)
+│   ├── client/                 # Python client
+│   │   └── inference_client_wrapper.py  # SkyRL-compatible client
+│   ├── test/                   # Test scripts
+│   └── README.md               # LLM server docs
+│
 ├── logs/                       # Log files
+├── venv/                       # Shared virtual environment
+│
 ├── config.yaml                 # Configuration
 ├── .env                        # Environment variables
-├── requirements.txt            # Dependencies
-├── start.sh                    # Startup script
-└── stop.sh                     # Shutdown script
+├── requirements.txt            # All dependencies (including vLLM)
+│
+├── setup.sh                    # Setup venv and install deps
+├── start_all.sh                # Start all services ⭐
+├── stop_all.sh                 # Stop all services
+├── start_worker_router.sh      # Start Worker Router only
+├── stop_worker_router.sh       # Stop Worker Router only
+├── start_llm_server.sh         # Start vLLM server only
+├── stop_llm_server.sh          # Stop vLLM server only
+│
+├── STARTUP_GUIDE.md            # Complete startup guide
+└── README.md                   # This file
 ```
 
 ## 🚀 Quick Start
@@ -49,104 +67,64 @@ worker_orchestrator/
 ### 1. Setup Virtual Environment & Install Dependencies
 
 ```bash
-cd E:\git_fork_folder\VulRL\worker_orchestrator  # Windows
-# OR
 cd /mnt/e/git_fork_folder/VulRL/worker_orchestrator  # WSL
 
-# Run setup script (creates venv and installs dependencies)
+# Run setup script (creates venv and installs all dependencies)
 bash setup.sh
 ```
 
-### 2. Install Redis
+This installs:
+- FastAPI, Redis, aiohttp (Worker Router)
+- vLLM (LLM Server)
+- Docker SDK (Workers)
 
-**Windows**:
-```bash
-# Download Redis for Windows from: https://github.com/microsoftarchive/redis/releases
-# Or use WSL/Docker
+### 2. Ensure Model is Available
+
+The model should be at:
+```
+/mnt/e/models/qwen2.5-1.5b  (WSL)
+E:\models\qwen2.5-1.5b       (Windows)
 ```
 
-**Linux/Mac**:
-```bash
-sudo apt-get install redis-server  # Ubuntu/Debian
-brew install redis                 # macOS
-```
-
-### 3. Configure
-
-Edit `config.yaml` and `.env` as needed:
-
-```yaml
-# config.yaml
-worker_router:
-  port: 5000
-  max_workers: 10
-
-redis:
-  host: localhost
-  port: 6379
-```
+### 3. Start All Services
 
 ```bash
-# .env
-REDIS_PASSWORD=
+bash start_all.sh
 ```
 
-### 4. Start Services
+This starts:
+- ✅ Redis (if not running)
+- ✅ vLLM server (background)
+- ✅ Worker Router (foreground)
 
-**Linux/Mac/WSL**:
+Press `Ctrl+C` to stop all services.
+
+### 4. Verify Services
+
 ```bash
-# This will activate venv and start the server
-bash start.sh
-```
+# Check Redis
+redis-cli ping
 
-**Or manually**:
-```bash
-# Activate venv
-source venv/bin/activate
+# Check LLM server
+curl http://127.0.0.1:8001/health
 
-# Start server
-python -m uvicorn worker_router.app:app --host 0.0.0.0 --port 5000
-```
-
-**Windows (PowerShell)**:
-```powershell
-# Activate venv
-.\venv\Scripts\Activate.ps1
-
-# Start Redis (in separate terminal)
-redis-server
-
-# Start server
-python -m uvicorn worker_router.app:app --host 0.0.0.0 --port 5000
+# Check Worker Router
+curl http://localhost:5000/health
 ```
 
 ### 5. Test API
 
 ```bash
-# Check health
-curl http://localhost:5000/health
+# View API docs
+open http://localhost:5000/docs
 
-# Submit a rollout (example)
-curl -X POST http://localhost:5000/api/rollout/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "cve_id": "CVE-2021-44228",
-    "vulhub_path": "/data/vulhub/log4j/CVE-2021-44228",
-    "prompt": "Exploit Log4Shell vulnerability",
-    "llm_endpoint": "http://127.0.0.1:8001",
-    "model_name": "Qwen/Qwen2.5-7B-Instruct"
-  }'
-
-# Get task status
-curl http://localhost:5000/api/rollout/status/{task_id}
+# Submit a rollout
+cd test/worker_router
+bash _api_rollout_execute.sh
 
 # Check workers
-curl http://localhost:5000/api/workers/status
+bash _api_workers_status.sh
 ```
-
-### 6. View API Documentation
-
-Open in browser: http://localhost:5000/docs
 
 ## 📖 API Endpoints
 
@@ -173,17 +151,14 @@ Open in browser: http://localhost:5000/docs
 
 ## 📝 Logging
 
-All logs are written to `logs/worker_router.log` with the format:
+All logs are written to `logs/` directory:
+- `worker_router.log` - Worker Router logs
+- `llm_server.log` - vLLM server logs (if started with start_all.sh)
 
+Format:
 ```
 time <timestamp>; request entry point: <function>; request: <input>
 time <timestamp>; request entry point: <function>; request: <input>; return: <output>
-```
-
-Example:
-```
-time 2026-03-10 14:23:45.123; request entry point: execute_rollout; request: {"cve_id": "CVE-2021-44228", ...}
-time 2026-03-10 14:23:45.456; request entry point: execute_rollout; request: {"cve_id": "CVE-2021-44228", ...}; return: {"task_id": "abc-123", "status": "running"}
 ```
 
 ## 🔧 Configuration
@@ -213,7 +188,7 @@ redis:
 ```yaml
 llm:
   default_endpoint: "http://127.0.0.1:8001"
-  default_model: "Qwen/Qwen2.5-7B-Instruct"
+  default_model: "qwen2.5-1.5b"
   default_temperature: 0.7
   default_max_tokens: 512
 ```
@@ -225,12 +200,23 @@ llm:
 - Python 3.10+
 - Redis 6.0+
 - Docker (for actual rollouts)
+- GPU with CUDA (for vLLM)
+- Local Qwen 2.5 1.5B model
 
-### Running in Development Mode
+### Running Individual Services
 
 ```bash
-# Start with auto-reload
-uvicorn worker_router.app:app --reload --port 5000
+# Activate venv
+source venv/bin/activate
+
+# Start Redis
+redis-server --daemonize yes
+
+# Start vLLM (terminal 1)
+bash start_llm_server.sh
+
+# Start Worker Router (terminal 2)
+bash start_worker_router.sh
 ```
 
 ### Testing Individual Components
@@ -241,11 +227,13 @@ from worker_router.redis_client import RedisClient
 redis = RedisClient("localhost", 6379)
 print(redis.ping())  # Should print True
 
-# Test worker spawning
-from worker_router.worker_pool import WorkerPool
-pool = WorkerPool(redis, max_workers=2)
-worker_id = pool.spawn_worker()
-print(f"Spawned worker: {worker_id}")
+# Test LLM client
+from ez_llm_server.client import InferenceEngineClientWrapper
+client = InferenceEngineClientWrapper(
+    endpoint="http://127.0.0.1:8001",
+    model_name="qwen2.5-1.5b"
+)
+# Use client.generate() for inference
 ```
 
 ## 📊 Monitoring
@@ -272,7 +260,7 @@ GET result:{task_id}
 ### Worker Processes
 
 ```bash
-# List worker processes (Linux/Mac)
+# List worker processes
 ps aux | grep worker_unit
 
 # Kill specific worker
@@ -291,26 +279,48 @@ redis-cli ping
 redis-server --daemonize yes
 ```
 
-### Worker Not Starting
+### vLLM: Model Not Found
 
-Check logs in `logs/worker_router.log` for errors.
+```bash
+# Check model path
+ls /mnt/e/models/qwen2.5-1.5b
+
+# Update path in start_llm_server.sh if needed
+```
+
+### vLLM: CUDA Out of Memory
+
+```bash
+# Edit start_llm_server.sh
+# Change: --gpu-memory-utilization 0.9
+# To: --gpu-memory-utilization 0.7
+
+# Or close other GPU processes
+nvidia-smi
+kill -9 <PID>
+```
 
 ### Port Already in Use
 
-Change port in `config.yaml` or `.env`:
-
 ```bash
-WORKER_ROUTER_PORT=5001
+# Find process using port
+lsof -i :5000  # Worker Router
+lsof -i :8001  # vLLM
+
+# Kill process
+kill -9 <PID>
 ```
 
 ## 📚 Documentation
 
 For complete architecture and design details, see:
 
+- `STARTUP_GUIDE.md` - Complete startup guide
 - `design/API_INPUT_OUTPUT.md` - Complete API specification
 - `design/ARCHITECTURE_VISUAL.md` - Visual architecture diagrams
 - `design/WORKER_MANAGEMENT_TECH_SPEC.md` - Technical specifications
 - `design/README.md` - Design documentation index
+- `ez_llm_server/README.md` - LLM server documentation
 
 ## 🚧 Current Status
 
@@ -321,6 +331,8 @@ For complete architecture and design details, see:
 - ✅ Worker subprocess management
 - ✅ API endpoints (rollout, workers)
 - ✅ File logging
+- ✅ vLLM server integration
+- ✅ SkyRL-compatible LLM client
 - ✅ Demo worker with mocked Docker operations
 
 **TODO for Production**:
@@ -329,17 +341,17 @@ For complete architecture and design details, see:
 - [ ] Add task retry logic
 - [ ] Add worker health monitoring
 - [ ] Add metrics/Prometheus integration
-- [ ] Add comprehensive error handling
 
 ## 📞 Support
 
 For issues or questions:
-1. Check the logs in `logs/worker_router.log`
+1. Check the logs in `logs/`
 2. Review API documentation at http://localhost:5000/docs
-3. See design docs in `design/` directory
+3. See `STARTUP_GUIDE.md` for detailed startup instructions
+4. See design docs in `design/` directory
 
 ---
 
 **Version**: 0.1.0  
 **Last Updated**: 2026-03-10  
-**Status**: Development
+**Status**: Development ✅

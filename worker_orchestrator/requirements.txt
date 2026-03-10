@@ -21,3 +21,6 @@ docker==7.0.0
 
 # Utilities
 python-multipart==0.0.6
+
+# vLLM for ez_llm_server (optional - install separately if needed)
+# vllm>=0.6.0  # Uncomment to install with main requirements

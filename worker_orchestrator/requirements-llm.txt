@@ -1,0 +1,5 @@
+# vLLM dependencies (install separately due to size and proxy issues)
+
+# Install with: pip install -r requirements-llm.txt --no-cache-dir
+
+vllm>=0.6.0
