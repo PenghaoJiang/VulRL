@@ -4,6 +4,7 @@ import subprocess
 import uuid
 import time
 import sys
+import os
 from typing import Optional, List, Dict
 from pathlib import Path
 
@@ -24,48 +25,55 @@ class WorkerPool:
         self.max_workers = max_workers
         self.workers: Dict[str, subprocess.Popen] = {}
     
-    def spawn_worker(self) -> str:
-        """Spawn a new worker subprocess.
+    def spawn_worker(self) -> Optional[str]:
+        """Spawn a new worker subprocess with auto-scaling.
         
         Returns:
-            Worker ID
+            Worker ID or None if at max capacity
         """
         if len(self.workers) >= self.max_workers:
             return None
         
         # Generate worker ID
-        worker_id = str(uuid.uuid4())[:8]
+        worker_id = f"auto_{str(uuid.uuid4())[:8]}"
         
-        # Get path to worker_unit main.py
+        # Get paths
         worker_script = Path(__file__).parent.parent / "worker_unit" / "main.py"
+        log_dir = Path(__file__).parent.parent / "logs"
+        log_dir.mkdir(exist_ok=True)
         
-        # Spawn subprocess
-        process = subprocess.Popen(
-            [sys.executable, str(worker_script), "--worker-id", worker_id],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        # Open log files with unbuffered output
+        log_file = log_dir / f"worker_{worker_id}.log"
+        log_handle = open(log_file, "w", buffering=1)  # Line buffered
         
-        # Store process
-        self.workers[worker_id] = process
-        
-        # Initialize worker metadata in Redis
-        self.redis_client.set_worker_metadata(worker_id, {
-            "status": "idle",
-            "pid": process.pid,
-            "started_at": time.time(),
-            "current_task": None,
-            "tasks_completed": 0,
-            "tasks_failed": 0,
-        })
-        
-        return worker_id
+        # Spawn subprocess with log output and unbuffered Python
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-u", str(worker_script), "--worker-id", worker_id],  # -u = unbuffered
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,  # Merge stderr to stdout
+                cwd=str(Path(__file__).parent.parent),  # Run from project root
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},  # Force unbuffered
+            )
+            
+            # Store process
+            self.workers[worker_id] = process
+            
+            # Don't pre-register worker metadata in Redis
+            # Worker will register itself when fully initialized and ready (takes 2-3s)
+            # The wait loop in rollout.py will poll until worker appears with status="idle"
+            
+            return worker_id
+            
+        except Exception as e:
+            log_handle.close()
+            return None
     
     def get_available_worker(self) -> Optional[str]:
-        """Get an idle worker or spawn a new one.
+        """Get an idle worker.
         
         Returns:
-            Worker ID or None if all busy and at max capacity
+            Worker ID or None if all busy
         """
         # Check for idle workers
         all_workers = self.redis_client.get_all_workers()
@@ -74,10 +82,7 @@ class WorkerPool:
             if status.get("status") == "idle":
                 return worker_id
         
-        # Spawn new worker if under limit
-        if len(self.workers) < self.max_workers:
-            return self.spawn_worker()
-        
+        # No idle workers available
         return None
     
     def get_all_workers(self) -> List[Dict]:

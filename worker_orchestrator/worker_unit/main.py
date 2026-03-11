@@ -34,6 +34,20 @@ class WorkerUnit:
         """Main worker loop: poll Redis queue and execute tasks."""
         print(f"[Worker {self.worker_id}] Started")
         
+        # Register worker in Redis
+        import os
+        import time
+        self.redis_client.set_worker_metadata(self.worker_id, {
+            "status": "idle",
+            "pid": os.getpid(),
+            "started_at": time.time(),
+            "current_task": None,
+            "tasks_completed": 0,
+            "tasks_failed": 0,
+        })
+        print(f"[Worker {self.worker_id}] Registered in Redis")
+        print(f"[Worker {self.worker_id}] Ready to process tasks")
+        
         while self.running:
             # Poll queue for task
             task_id = self.redis_client.pop_task(self.worker_id, timeout=5)
@@ -89,6 +103,8 @@ class WorkerUnit:
     def shutdown(self):
         """Shutdown worker."""
         self.running = False
+        # Mark as dead in Redis
+        self.redis_client.set_worker_status(self.worker_id, "dead")
         print(f"[Worker {self.worker_id}] Shutting down")
 
 

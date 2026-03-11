@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Monkey-patch to use subprocess-based adapter BEFORE other imports
-# This avoids Docker SDK proxy issues in WSL2
+# This avoids Docker SDK proxy issues in WSL2 (因为老子用cursor要开梯子，wsl自动继承proxy 来下各种依赖)
 
 print("[TEST] Patching to use VulhubAdapterTest (subprocess-based)")
 import worker_unit.docker as docker_module

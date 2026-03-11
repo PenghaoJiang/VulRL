@@ -47,27 +47,58 @@ async def execute_rollout(request: RolloutRequest):
     worker_id = worker_pool.get_available_worker()
     
     if not worker_id:
-        # No workers available, queue task
-        queued_at = time.time()
+        # No workers available - try auto-scaling
+        logger.info(f"[AutoScale] No available workers, attempting to spawn new worker")
         
-        # Store task metadata
-        redis_client.set_task_metadata(task_id, {
-            "status": "queued",
-            "worker_id": None,
-            "request": request.dict(),
-            "queued_at": queued_at,
-        })
+        new_worker_id = worker_pool.spawn_worker()
         
-        response = RolloutResponse(
-            task_id=task_id,
-            status="queued",
-            worker_id=None,
-            queued_at=queued_at,
-        )
+        if new_worker_id:
+            logger.info(f"[AutoScale] Spawned new worker: {new_worker_id}")
+            
+            # Wait for worker to register (usually ~2-3 seconds)
+            max_wait = 10  # seconds
+            wait_interval = 0.5
+            elapsed = 0
+            
+            while elapsed < max_wait:
+                time.sleep(wait_interval)
+                elapsed += wait_interval
+                
+                # Check if worker registered and is idle
+                worker_status = redis_client.get_worker_status(new_worker_id)
+                if worker_status and worker_status.get("status") == "idle":
+                    logger.info(f"[AutoScale] Worker {new_worker_id} ready after {elapsed:.1f}s")
+                    worker_id = new_worker_id
+                    break
+            
+            if not worker_id:
+                logger.warning(f"[AutoScale] Worker {new_worker_id} did not register in time")
+        else:
+            logger.warning(f"[AutoScale] Failed to spawn new worker (max capacity reached)")
         
-        # Log response
-        log_response(logger, "execute_rollout", request, response)
-        return response
+        # Still no worker? Queue the task
+        if not worker_id:
+            logger.info(f"[AutoScale] Queueing task {task_id}")
+            queued_at = time.time()
+            
+            # Store task metadata
+            redis_client.set_task_metadata(task_id, {
+                "status": "queued",
+                "worker_id": None,
+                "request": request.dict(),
+                "queued_at": queued_at,
+            })
+            
+            response = RolloutResponse(
+                task_id=task_id,
+                status="queued",
+                worker_id=None,
+                queued_at=queued_at,
+            )
+            
+            # Log response
+            log_response(logger, "execute_rollout", request, response)
+            return response
     
     # Assign to worker
     queued_at = time.time()
