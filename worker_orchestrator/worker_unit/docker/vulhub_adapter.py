@@ -28,14 +28,14 @@ class VulhubAdapter(BaseEnvAdapter):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         
-        vulhub_base_path = config.get("vulhub_base_path", "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub")
         vulhub_path = config.get("vulhub_path")
         
         if not vulhub_path:
             raise ValueError("vulhub_path is required in config")
         
         self.vulhub_path = vulhub_path
-        self.compose_path = Path(vulhub_base_path) / vulhub_path
+        # Use absolute path directly
+        self.compose_path = Path(vulhub_path)
 
         # Use subprocess commands instead of Docker SDK
         self.compose_cmd = self._detect_compose_command()

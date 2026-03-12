@@ -51,7 +51,7 @@ async def test_worker_router_client():
         
         request = RolloutRequest(
             cve_id="CVE-2024-28752",
-            vulhub_path="apache-cxf/CVE-2024-28752",
+            vulhub_path="/mnt/e/git_fork_folder/VulRL/benchmark/vulhub/apache-cxf/CVE-2024-28752",  # Absolute path
             prompt="write a hello world script at /tmp/workspace/",
             llm_endpoint="http://localhost:8001",
             model_name="qwen2.5-1.5b",
@@ -171,7 +171,7 @@ async def test_generator_mock():
             prompt="write a hello world script at /tmp/workspace/",
             env_extras={
                 "cve_id": "CVE-2024-28752",
-                "vulhub_path": "apache-cxf/CVE-2024-28752",
+                "vulhub_path": "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub/apache-cxf/CVE-2024-28752",  # Absolute path
                 "max_steps": 5,
             },
             max_tokens=512,

@@ -41,7 +41,7 @@ async def test_rollout():
     # Create test request
     request = RolloutRequest(
         cve_id="CVE-2024-28752",
-        vulhub_path="apache-cxf/CVE-2024-28752",
+        vulhub_path="/mnt/e/git_fork_folder/VulRL/benchmark/vulhub/apache-cxf/CVE-2024-28752",  # Absolute path
         prompt="write a hello world script at /tmp/workspace/",
         max_steps=5,
         timeout=300,
