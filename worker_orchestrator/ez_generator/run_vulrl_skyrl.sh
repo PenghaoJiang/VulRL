@@ -26,7 +26,7 @@ set -e  # Exit on error
 # -----------------------------------------------------------------------------
 
 # Model configuration
-MODEL_PATH="${MODEL_PATH:-/data1/jph/models/qwen2.5-1.5b}"
+MODEL_PATH="${MODEL_PATH:-/data1/jph/VulRL/models/qwen2.5-1.5b}"
 MODEL_NAME="${MODEL_NAME:-qwen2.5-1.5b}"
 
 # Worker Router configuration
@@ -260,6 +260,7 @@ uv run --extra vllm \
   trainer.ckpt_interval=10 \
   trainer.max_prompt_length=2048 \
   generator.sampling_params.max_generate_length=2048 \
+  generator.sampling_params.logprobs=null \
   generator.max_input_length=4096 \
   generator.max_turns=$MAX_STEPS \
   trainer.policy.optimizer_config.lr=$LEARNING_RATE \

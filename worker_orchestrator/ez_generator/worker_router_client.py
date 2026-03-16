@@ -4,16 +4,9 @@ import aiohttp
 import asyncio
 import time
 from typing import Optional, Dict, Any
-import sys
-from pathlib import Path
 
-# Add worker_router to path for model imports
-_worker_router_path = Path(__file__).parent.parent / "worker_router"
-if str(_worker_router_path) not in sys.path:
-    sys.path.insert(0, str(_worker_router_path))
-
-# Import directly from models module to avoid package __init__.py
-from models import (
+# Import type definitions (TypedDict - no runtime dependency)
+from .types import (
     RolloutRequest,
     RolloutResponse,
     RolloutResult,
@@ -67,11 +60,11 @@ class WorkerRouterClient:
         url = f"{self.base_url}/api/rollout/execute"
         
         try:
-            async with self.session.post(url, json=request.dict()) as resp:
+            async with self.session.post(url, json=request) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-                response = RolloutResponse(**data)
-                return response.task_id
+                # data is already a dict matching RolloutResponse structure
+                return data["task_id"]
         except aiohttp.ClientError as e:
             raise RuntimeError(f"Failed to submit rollout: {e}")
     
@@ -95,7 +88,8 @@ class WorkerRouterClient:
             async with self.session.get(url) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-                return RolloutResult(**data)
+                # data is already a dict matching RolloutResult structure
+                return data  # type: ignore
         except aiohttp.ClientError as e:
             raise RuntimeError(f"Failed to get rollout status: {e}")
     
@@ -155,25 +149,25 @@ class WorkerRouterClient:
                 if verbose:
                     print(
                         f"[WorkerRouterClient] Poll #{poll_count} ({elapsed:.1f}s): "
-                        f"status={result.status}"
+                        f"status={result['status']}"
                     )
                 
                 # Check if completed
-                if result.status == "completed":
+                if result["status"] == "completed":
                     if verbose:
                         print(f"[WorkerRouterClient] ✓ Task completed after {elapsed:.1f}s")
-                        print(f"[WorkerRouterClient] Reward: {result.reward}, Steps: {len(result.trajectory or [])}")
+                        print(f"[WorkerRouterClient] Reward: {result.get('reward')}, Steps: {len(result.get('trajectory') or [])}")
                     return result
                 
                 # Check if failed
-                if result.status == "failed":
-                    error_msg = result.error or "Unknown error"
+                if result["status"] == "failed":
+                    error_msg = result.get("error") or "Unknown error"
                     raise RuntimeError(
                         f"Rollout {task_id} failed: {error_msg}"
                     )
                 
                 # Check if timeout
-                if result.status == "timeout":
+                if result["status"] == "timeout":
                     raise TimeoutError(
                         f"Rollout {task_id} timed out on worker side"
                     )
