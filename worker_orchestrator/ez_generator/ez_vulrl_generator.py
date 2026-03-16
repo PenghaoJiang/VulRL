@@ -31,7 +31,7 @@ from .worker_router_client import WorkerRouterClient
 
 # Add worker_router to path for model imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "worker_router"))
-from worker_router.models import RolloutRequest, TrajectoryStep
+from .types import RolloutRequest, TrajectoryStep
 
 
 class EzVulRLGenerator(SkyRLGymGenerator):
@@ -147,25 +147,25 @@ class EzVulRLGenerator(SkyRLGymGenerator):
             else:
                 prompt_text = str(prompt)
             
-            # Build RolloutRequest
-            request = RolloutRequest(
-                cve_id=env_extras.get("cve_id", "UNKNOWN"),
-                vulhub_path=env_extras.get("vulhub_path", ""),
-                prompt=prompt_text,
-                llm_endpoint=self.llm_endpoint,
-                model_name=self.llm_model_name,
-                max_steps=env_extras.get("max_steps", 10),
-                temperature=sampling_params.get("temperature", 0.7),
-                max_tokens=max_tokens,
-                timeout=int(self.polling_config["timeout"]),
-                metadata={
+            # Build RolloutRequest (as plain dict)
+            request: RolloutRequest = {
+                "cve_id": env_extras.get("cve_id", "UNKNOWN"),
+                "vulhub_path": env_extras.get("vulhub_path", ""),
+                "prompt": prompt_text,
+                "llm_endpoint": self.llm_endpoint,
+                "model_name": self.llm_model_name,
+                "max_steps": env_extras.get("max_steps", 10),
+                "temperature": sampling_params.get("temperature", 0.7),
+                "max_tokens": max_tokens,
+                "timeout": int(self.polling_config["timeout"]),
+                "metadata": {
                     "trajectory_id": str(trajectory_id),
                     "global_step": batch_metadata.global_step,
                     "training_phase": batch_metadata.training_phase,
                 },
-            )
+            }
             
-            print(f"[EzVulRLGenerator] Submitting rollout: {request.cve_id}")
+            print(f"[EzVulRLGenerator] Submitting rollout: {request['cve_id']}")
             
             # Submit to Worker Router
             task_id = await self.worker_router_client.submit_rollout(request)
@@ -179,10 +179,10 @@ class EzVulRLGenerator(SkyRLGymGenerator):
                 verbose=self.polling_config["verbose"],
             )
             
-            print(f"[EzVulRLGenerator] Received result: reward={result.reward}, steps={len(result.trajectory or [])}")
+            print(f"[EzVulRLGenerator] Received result: reward={result['reward']}, steps={len(result.get('trajectory') or [])}")
             
             # Convert trajectory to SkyRL message format
-            messages = self._convert_trajectory_to_messages(result.trajectory or [], prompt)
+            messages = self._convert_trajectory_to_messages(result.get("trajectory") or [], prompt)
             
             if not messages:
                 print(f"[EzVulRLGenerator] ⚠ No messages in trajectory, skipping")
@@ -223,8 +223,8 @@ class EzVulRLGenerator(SkyRLGymGenerator):
                 response_ids = response_ids[:min_len]
                 loss_mask = loss_mask[:min_len]
             
-            reward = result.reward or 0.0
-            stop_reason = "completed" if result.success else "failed"
+            reward = result.get("reward") or 0.0
+            stop_reason = "completed" if result.get("success") else "failed"
             
             # Truncate to max response tokens
             max_response_tokens = max_tokens
@@ -291,12 +291,12 @@ class EzVulRLGenerator(SkyRLGymGenerator):
             # Assistant action
             messages.append({
                 "role": "assistant",
-                "content": step.action
+                "content": step["action"]
             })
             # User observation
             messages.append({
                 "role": "user",
-                "content": step.observation
+                "content": step["observation"]
             })
         
         return messages
