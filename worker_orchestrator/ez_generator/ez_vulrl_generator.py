@@ -78,7 +78,7 @@ class EzVulRLGenerator(SkyRLGymGenerator):
         
         # Initialize Worker Router client with hardcoded default
         # Note: Worker Router URL is NOT configurable - it always uses the default
-        # from WorkerRouterClient (http://localhost:5000)
+        # from WorkerRouterClient (http://localhost:12345)
         self.worker_router_client = WorkerRouterClient()
         self.worker_router_url = self.worker_router_client.base_url
         

@@ -29,12 +29,12 @@ class WorkerRouterClient:
     since worker units push results to Redis asynchronously.
     """
     
-    def __init__(self, base_url: str = "http://localhost:5000"):
+    def __init__(self, base_url: str = "http://localhost:12345"):
         """
         Initialize the client.
         
         Args:
-            base_url: Base URL of the Worker Router API (default: http://localhost:5000)
+            base_url: Base URL of the Worker Router API (default: http://localhost:12345)
         """
         self.base_url = base_url.rstrip("/")
         self.session: Optional[aiohttp.ClientSession] = None

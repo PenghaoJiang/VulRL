@@ -15,9 +15,9 @@ Usage:
 
 Configuration:
     Worker Router (NOT configurable):
-    - Worker Router URL is HARDCODED to http://localhost:5000
+    - Worker Router URL is HARDCODED to http://localhost:12345
     - If running on a different host, use SSH port forwarding:
-      ssh -L 5000:remote-host:5000 remote-host
+      ssh -L 12345:remote-host:12345 remote-host
     
     VulRL-specific configs (use + prefix as they're not in standard GeneratorConfig):
     - rollout_timeout: Max time per rollout in seconds (default: 600.0)

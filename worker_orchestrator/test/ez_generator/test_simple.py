@@ -38,7 +38,7 @@ async def test_parallel_workers():
     print("=" * 70)
     print()
     
-    client = WorkerRouterClient(base_url="http://localhost:5000")
+    client = WorkerRouterClient(base_url="http://localhost:12345")
     
     try:
         # Step 1: Check worker status
@@ -223,7 +223,7 @@ async def main():
     print("  • Result retrieval for multiple tasks")
     print()
     print("Prerequisites:")
-    print("  • Worker Router running on http://localhost:5000")
+    print("  • Worker Router running on http://localhost:12345")
     print("  • LLM server running on http://localhost:8001")
     print("  • Redis running on localhost:6379")
     print("  • (Workers will auto-spawn - no manual startup needed!)")

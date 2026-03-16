@@ -275,9 +275,9 @@ See `test/ez_generator/README.md` for detailed test documentation.
 
 ## Limitations
 
-1. **Worker Router URL**: Hardcoded to `http://localhost:5000` (not configurable via SkyRL config)
+1. **Worker Router URL**: Hardcoded to `http://localhost:12345` (not configurable via SkyRL config)
    - To use a different URL, modify `WorkerRouterClient.__init__` default in `worker_router_client.py`
-   - Or use SSH port forwarding: `ssh -L 5000:remote-host:5000 remote-host`
+   - Or use SSH port forwarding: `ssh -L 12345:remote-host:12345 remote-host`
 2. **Latency**: HTTP polling adds ~10s overhead per rollout
 3. **Network Dependency**: Requires reliable network connection
 4. **Complexity**: More moving parts (Worker Router, Redis, Workers)
@@ -299,7 +299,7 @@ This will:
 2. Check prerequisites (services, data, model)
 3. Launch training with minimal settings (1 epoch, 3 parallel tasks)
 
-**⚠️ Important**: Worker Router must be running at `http://localhost:5000` (hardcoded default)
+**⚠️ Important**: Worker Router must be running at `http://localhost:12345` (hardcoded default)
 
 ### New Files
 

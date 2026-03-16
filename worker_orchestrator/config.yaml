@@ -2,7 +2,7 @@
 
 worker_router:
   host: "0.0.0.0"
-  port: 5000
+  port: 12345
   max_workers: 10
   worker_timeout: 1800  # 30 minutes
 

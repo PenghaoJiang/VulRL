@@ -52,8 +52,8 @@ fi
 # Start FastAPI with uvicorn
 echo "✓ Starting Worker Router FastAPI server..."
 echo ""
-echo "Server: http://0.0.0.0:5000"
-echo "API docs: http://localhost:5000/docs"
+echo "Server: http://0.0.0.0:12345"
+echo "API docs: http://localhost:12345/docs"
 echo "Logs: logs/worker_router.log"
 echo ""
 echo "Press Ctrl+C to stop"
@@ -62,7 +62,7 @@ echo ""
 # Run uvicorn
 python -m uvicorn worker_router.app:app \
     --host 0.0.0.0 \
-    --port 5000 \
+    --port 12345 \
     --log-level info
 
 # Note: This will run in foreground. Use Ctrl+C to stop.

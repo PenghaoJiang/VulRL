@@ -30,11 +30,11 @@ MODEL_PATH="${MODEL_PATH:-/data1/jph/models/qwen2.5-1.5b}"
 MODEL_NAME="${MODEL_NAME:-qwen2.5-1.5b}"
 
 # Worker Router configuration
-# IMPORTANT: Worker Router URL is HARDCODED to http://localhost:5000 in WorkerRouterClient
+# IMPORTANT: Worker Router URL is HARDCODED to http://localhost:12345 in WorkerRouterClient
 # It is NOT configurable via this script or Hydra config
 # If Worker Router runs on a different host/port, use SSH port forwarding:
-#   ssh -L 5000:remote-host:5000 remote-host
-WORKER_ROUTER_URL="http://localhost:5000"  # Hardcoded (for display only)
+#   ssh -L 12345:remote-host:12345 remote-host
+WORKER_ROUTER_URL="http://localhost:12345"  # Hardcoded (for display only)
 
 # LLM Endpoint configuration (configurable)
 LLM_ENDPOINT_HOST="${LLM_ENDPOINT_HOST:-localhost}"

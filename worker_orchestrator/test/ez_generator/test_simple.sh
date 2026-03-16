@@ -70,8 +70,8 @@ echo
 echo "3. Checking prerequisites..."
 
 # Check Worker Router
-echo "  - Worker Router (http://localhost:5000)..."
-if curl -s -f http://localhost:5000/health > /dev/null 2>&1; then
+echo "  - Worker Router (http://localhost:12345)..."
+if curl -s -f http://localhost:12345/health > /dev/null 2>&1; then
     echo -e "    ${GREEN}✓${NC} Worker Router is running"
 else
     echo -e "    ${RED}✗${NC} Worker Router is not running"
@@ -101,7 +101,7 @@ fi
 
 # Check workers (they will auto-spawn, so just informational)
 echo "  - Worker Units..."
-WORKERS_STATUS=$(curl -s http://localhost:5000/api/workers/status | python3 -c "import sys, json; data = json.load(sys.stdin); print(f\"{data['active']} active, {data['idle']} idle, {data['busy']} busy\")" 2>/dev/null || echo "0 active, 0 idle, 0 busy")
+WORKERS_STATUS=$(curl -s http://localhost:12345/api/workers/status | python3 -c "import sys, json; data = json.load(sys.stdin); print(f\"{data['active']} active, {data['idle']} idle, {data['busy']} busy\")" 2>/dev/null || echo "0 active, 0 idle, 0 busy")
 echo -e "    ${YELLOW}ℹ${NC} Workers: $WORKERS_STATUS"
 echo -e "    ${YELLOW}ℹ${NC} (Workers will auto-spawn if needed)"
 
