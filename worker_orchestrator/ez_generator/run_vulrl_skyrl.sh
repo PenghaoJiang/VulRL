@@ -54,6 +54,13 @@ LEARNING_RATE="${LEARNING_RATE:-1e-6}"
 NUM_GPUS="${NUM_GPUS:-1}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/data1/jph/ckpts/vulrl_skyrl_test}"
 
+# GPU Memory Configuration
+# VLLM gpu_memory_utilization: fraction of GPU memory to use for inference engine
+# For 10GB on 98GB GPU: 10/98 ≈ 0.10
+# For 15GB on 98GB GPU: 15/98 ≈ 0.15
+# Default 0.15 (~15GB) - adjust based on available memory
+GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.15}"
+
 # Logging
 LOGGER="${LOGGER:-local}"  # Options: local, wandb, tensorboard
 PROJECT_NAME="${PROJECT_NAME:-vulrl_skyrl}"
@@ -85,6 +92,7 @@ echo "  Training Data: $TRAIN_DATA"
 echo "  Epochs: $EPOCHS"
 echo "  Batch Size: $TRAIN_BATCH_SIZE"
 echo "  Max Steps per Rollout: $MAX_STEPS"
+echo "  GPU Memory Utilization: $GPU_MEMORY_UTILIZATION"
 echo "  Checkpoint Dir: $CHECKPOINT_DIR"
 echo "============================================================"
 echo ""
@@ -200,6 +208,7 @@ export PYTHONPATH="$SKYRL_PATH:${PYTHONPATH}"
 echo "✓ Environment configured"
 echo "  PYTHONPATH: $PYTHONPATH"
 echo "  CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
+echo "  GPU Memory Utilization: ${GPU_MEMORY_UTILIZATION} (for VLLM inference engine)"
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -271,7 +280,7 @@ uv run --extra vllm \
   generator.async_engine=true \
   generator.batched=true \
   generator.n_samples_per_prompt=1 \
-  generator.gpu_memory_utilization=0.4 \
+  generator.gpu_memory_utilization="$GPU_MEMORY_UTILIZATION" \
   trainer.logger="$LOGGER" \
   trainer.project_name="$PROJECT_NAME" \
   trainer.run_name="$RUN_NAME" \
