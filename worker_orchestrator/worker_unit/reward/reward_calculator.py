@@ -1,23 +1,31 @@
 """
 Reward calculator for VulRL worker unit.
-Currently returns 0.0 for all steps (TODO: implement actual reward logic).
+Delegates to RewardRouter for task-specific reward computation.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from worker_unit.reward.reward_router import RewardRouter
 
 
 class RewardCalculator:
     """
     Calculate rewards for VulRL rollouts.
     
-    TODO: Implement actual reward computation logic based on:
-    - Command execution success
-    - Target system compromise indicators
-    - Vulnerability exploitation evidence
+    Uses RewardRouter to delegate to task-specific implementations
+    (VulhubReward, CVEBenchReward, XbowReward).
     """
     
-    def __init__(self):
-        pass
+    def __init__(self, task_type: str = "vulhub", config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize reward calculator.
+        
+        Args:
+            task_type: Type of task (vulhub, cvebench, xbow)
+            config: Configuration dict (e.g., dataset_path for VulhubReward)
+        """
+        self.task_type = task_type
+        self.config = config or {}
+        self.router = RewardRouter(task_type, config=self.config)
     
     def compute_step_reward(
         self,
@@ -36,14 +44,8 @@ class RewardCalculator:
             metadata: Additional metadata
             
         Returns:
-            Reward value (currently 0.0)
-            
-        TODO: Implement actual logic:
-        - Parse command output for success indicators
-        - Check for vulnerability exploitation evidence
-        - Detect system compromise
+            Reward value (currently 0.0 - all reward computation is end-of-episode)
         """
-        # TODO: Implement reward logic
         return 0.0
     
     def compute_episode_reward(
@@ -54,17 +56,13 @@ class RewardCalculator:
         """
         Compute final reward for entire episode.
         
+        Delegates to RewardRouter which routes to task-specific implementations.
+        
         Args:
-            trajectory: List of trajectory steps
-            task_id: Task identifier
+            trajectory: List of trajectory steps (dicts with 'action', 'observation', etc.)
+            task_id: Task identifier (e.g., vulhub_path like "apache/CVE-2021-41773")
             
         Returns:
-            Final episode reward (currently 0.0)
-            
-        TODO: Implement actual logic:
-        - Analyze complete trajectory
-        - Check for successful exploitation
-        - Evaluate quality of PoC
+            Final episode reward score
         """
-        # TODO: Implement episode reward logic
-        return 0.0
+        return self.router.compute_reward(trajectory, task_id)

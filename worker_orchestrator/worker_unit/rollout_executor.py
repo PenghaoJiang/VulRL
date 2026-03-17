@@ -20,7 +20,10 @@ class RolloutExecutor:
     """Execute a complete VulRL rollout."""
     
     def __init__(self):
-        self.reward_calculator = RewardCalculator()
+        # Reward calculator will be initialized per-request with task-specific config
+        # TODO: However, current structure assumes worker unit and skyrl share the same machine, 
+        #       leading to potential issues when running on different machines (using the same file path of the parquet). 
+        pass
     
     async def execute(self, request: RolloutRequest) -> RolloutResult:
         """
@@ -100,9 +103,22 @@ class RolloutExecutor:
             
             # 6. Compute final reward
             print("[RolloutExecutor] Computing rewards...")
-            total_reward = self.reward_calculator.compute_episode_reward(
+            
+            # Initialize reward calculator with task-specific config
+            reward_config = {
+                'dataset_path': request.metadata.get('dataset_path', '')
+            }
+            reward_calculator = RewardCalculator(
+                task_type=request.metadata.get('task_type', 'vulhub'),
+                config=reward_config
+            )
+            
+            # Use vulhub_path or cve_id as task_id for reward lookup (not timestamped task_id)
+            reward_task_id = request.vulhub_path or request.cve_id
+            
+            total_reward = reward_calculator.compute_episode_reward(
                 trajectory=[step.dict() for step in trajectory],
-                task_id=task_id
+                task_id=reward_task_id
             )
             print(f"[RolloutExecutor] Total reward: {total_reward}")
             

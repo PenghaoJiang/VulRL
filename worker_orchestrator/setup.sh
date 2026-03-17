@@ -46,20 +46,92 @@ pip install --upgrade pip --no-cache-dir || {
     pip install --upgrade pip --no-cache-dir
 }
 
-# Install dependencies
-echo "Installing dependencies..."
-pip install -r requirements.txt --no-cache-dir || {
-    echo ""
-    echo "✗ Installation failed!"
-    echo ""
-    echo "If you're behind a proxy that's not working, try:"
-    echo "  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY"
-    echo "  bash setup.sh"
-    echo ""
-    echo "Or configure pip proxy correctly:"
-    echo "  pip config set global.proxy http://your-proxy:port"
-    exit 1
+# Function to check if a package is installed
+check_package() {
+    python3 -c "import $1" 2>/dev/null
+    return $?
 }
+
+# Function to check package version
+check_package_version() {
+    pip show "$1" 2>/dev/null | grep -q "Version:"
+    return $?
+}
+
+# Install dependencies with smart checking
+echo "Checking and installing dependencies..."
+echo ""
+
+# Key packages to check (avoids reinstalling heavy dependencies)
+CRITICAL_PACKAGES=(
+    "fastapi:fastapi"
+    "uvicorn:uvicorn"
+    "redis:redis"
+    "aiohttp:aiohttp"
+    "docker:docker"
+    "pandas:pandas"
+    "pyarrow:pyarrow"
+    "pydantic:pydantic"
+)
+
+MISSING_PACKAGES=()
+INSTALLED_COUNT=0
+
+# Check which packages are missing
+for pkg_spec in "${CRITICAL_PACKAGES[@]}"; do
+    IFS=':' read -r import_name pip_name <<< "$pkg_spec"
+    if check_package "$import_name"; then
+        echo "✓ $pip_name already installed"
+        INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+    else
+        echo "✗ $pip_name not found, will install"
+        MISSING_PACKAGES+=("$pip_name")
+    fi
+done
+
+echo ""
+
+# Install all dependencies if many are missing (faster than selective install)
+if [ ${#MISSING_PACKAGES[@]} -gt 3 ] || [ $INSTALLED_COUNT -eq 0 ]; then
+    echo "Installing all dependencies from requirements.txt..."
+    pip install -r requirements.txt --no-cache-dir || {
+        echo ""
+        echo "✗ Installation failed!"
+        echo ""
+        echo "If you're behind a proxy that's not working, try:"
+        echo "  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY"
+        echo "  bash setup.sh"
+        echo ""
+        echo "Or configure pip proxy correctly:"
+        echo "  pip config set global.proxy http://your-proxy:port"
+        exit 1
+    }
+# Install only missing packages (saves time)
+elif [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
+    echo "Installing missing packages: ${MISSING_PACKAGES[*]}"
+    for pkg in "${MISSING_PACKAGES[@]}"; do
+        # Get version from requirements.txt
+        version=$(grep "^${pkg}==" requirements.txt | head -1)
+        if [ -n "$version" ]; then
+            echo "Installing $version..."
+            pip install "$version" --no-cache-dir || {
+                echo "Warning: Failed to install $version, trying full requirements.txt..."
+                pip install -r requirements.txt --no-cache-dir
+                break
+            }
+        else
+            echo "Installing $pkg (latest)..."
+            pip install "$pkg" --no-cache-dir
+        fi
+    done
+else
+    echo "✓ All dependencies already satisfied!"
+    echo "Verifying with requirements.txt..."
+    pip install -r requirements.txt --no-cache-dir --no-deps || {
+        echo "Warning: Some version mismatches detected, reinstalling..."
+        pip install -r requirements.txt --no-cache-dir
+    }
+fi
 
 echo ""
 echo "========================================="

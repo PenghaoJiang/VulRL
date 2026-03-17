@@ -29,16 +29,29 @@ set -e  # Exit on error
 MODEL_PATH="${MODEL_PATH:-/data1/jph/VulRL/models/qwen2.5-1.5b}"
 MODEL_NAME="${MODEL_NAME:-qwen2.5-1.5b}"
 
+# -----------------------------------------------------------------------------
+# DUAL INFERENCE ARCHITECTURE
+# -----------------------------------------------------------------------------
+# This script uses TWO separate LLM inference systems:
+#
+# 1. LOCAL VLLM (for SkyRL policy training):
+#    - Runs within SkyRL on GPU (generator.run_engines_locally=True)
+#    - Used for policy gradient updates and sampling
+#    - Scales with NUM_GPUS (generator.num_inference_engines=$NUM_GPUS)
+#    - Memory controlled by GPU_MEMORY_UTILIZATION
+#
+# 2. REMOTE LLM (for Worker Router rollouts):
+#    - External LLM server used by Worker Router for vulnerability exploitation
+#    - Configured directly in Worker Router (not passed via this script)
+#    - Used during rollout execution (not training)
+# -----------------------------------------------------------------------------
+
 # Worker Router configuration
 # IMPORTANT: Worker Router URL is HARDCODED to http://localhost:12345 in WorkerRouterClient
 # It is NOT configurable via this script or Hydra config
 # If Worker Router runs on a different host/port, use SSH port forwarding:
 #   ssh -L 12345:remote-host:12345 remote-host
 WORKER_ROUTER_URL="http://localhost:12345"  # Hardcoded (for display only)
-
-# LLM Endpoint configuration (configurable)
-LLM_ENDPOINT_HOST="${LLM_ENDPOINT_HOST:-localhost}"
-LLM_ENDPOINT_PORT="${LLM_ENDPOINT_PORT:-30000}"
 
 # Training data (fixed path as requested)
 TRAIN_DATA="${TRAIN_DATA:-/data1/jph/VulRL/SkyRL/skyrl-train/vulrl_inside_skyrl/train.parquet}"
@@ -51,6 +64,9 @@ MAX_STEPS="${MAX_STEPS:-10}"              # Max steps per rollout
 LEARNING_RATE="${LEARNING_RATE:-1e-6}"
 
 # System configuration (from run_training.sh)
+# NUM_GPUS: Set to 0 for CPU-only training (when GPU is busy/saturated)
+#           Set to 1+ for GPU training (much faster, requires free GPU)
+# Check GPU availability: nvidia-smi
 NUM_GPUS="${NUM_GPUS:-1}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/data1/jph/ckpts/vulrl_skyrl_test}"
 
@@ -65,10 +81,6 @@ GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.15}"
 LOGGER="${LOGGER:-local}"  # Options: local, wandb, tensorboard
 PROJECT_NAME="${PROJECT_NAME:-vulrl_skyrl}"
 RUN_NAME="${RUN_NAME:-vulrl_test_$(date +%Y%m%d_%H%M%S)}"
-
-# Polling configuration
-ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-600}"    # 10 minutes per rollout
-POLL_INTERVAL="${POLL_INTERVAL:-10}"         # Check status every 10 seconds
 
 # Path configuration (CRITICAL - these must match your remote machine)
 WORKER_ORCHESTRATOR_PATH="/data1/jph/VulRL/worker_orchestrator"
@@ -86,12 +98,18 @@ echo "============================================================"
 echo ""
 echo "Configuration:"
 echo "  Model: $MODEL_PATH"
-echo "  Worker Router: $WORKER_ROUTER_URL"
-echo "  LLM Endpoint: http://${LLM_ENDPOINT_HOST}:${LLM_ENDPOINT_PORT}"
 echo "  Training Data: $TRAIN_DATA"
+echo ""
+echo "Inference Setup (Dual Mode):"
+echo "  - SkyRL Inference: Local VLLM on GPU (for policy training)"
+echo "  - Worker Router: $WORKER_ROUTER_URL (for rollout execution)"
+echo ""
+echo "Training Parameters:"
 echo "  Epochs: $EPOCHS"
 echo "  Batch Size: $TRAIN_BATCH_SIZE"
 echo "  Max Steps per Rollout: $MAX_STEPS"
+echo "  Training GPUs: $NUM_GPUS (0=CPU, 1+=GPU)"
+echo "  Inference Engines: $NUM_GPUS"
 echo "  GPU Memory Utilization: $GPU_MEMORY_UTILIZATION"
 echo "  Checkpoint Dir: $CHECKPOINT_DIR"
 echo "============================================================"
@@ -208,7 +226,9 @@ export PYTHONPATH="$SKYRL_PATH:${PYTHONPATH}"
 echo "✓ Environment configured"
 echo "  PYTHONPATH: $PYTHONPATH"
 echo "  CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
-echo "  GPU Memory Utilization: ${GPU_MEMORY_UTILIZATION} (for VLLM inference engine)"
+echo "  Training GPUs: $NUM_GPUS"
+echo "  Inference Engines: $NUM_GPUS (local VLLM)"
+echo "  GPU Memory Utilization: ${GPU_MEMORY_UTILIZATION}"
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -228,8 +248,8 @@ echo "============================================================"
 echo "Launching SkyRL Training with VulRL Generator"
 echo "============================================================"
 echo ""
-echo "Training will use Worker Router at: $WORKER_ROUTER_URL"
-echo "LLM Server at: http://${LLM_ENDPOINT_HOST}:${LLM_ENDPOINT_PORT}"
+echo "Rollout Execution: Worker Router at $WORKER_ROUTER_URL"
+echo "Policy Training: Local VLLM on GPU"
 echo ""
 echo "Press Ctrl+C to stop training"
 echo ""
@@ -254,7 +274,7 @@ uv run --extra vllm \
   trainer.placement.policy_num_nodes=1 \
   trainer.placement.ref_num_nodes=1 \
   trainer.policy.sequence_parallel_size=1 \
-  generator.num_inference_engines=1 \
+  generator.num_inference_engines=$NUM_GPUS \
   generator.inference_engine_tensor_parallel_size=1 \
   trainer.epochs=$EPOCHS \
   trainer.eval_batch_size=$EVAL_BATCH_SIZE \
@@ -275,7 +295,7 @@ uv run --extra vllm \
   trainer.policy.optimizer_config.lr=$LEARNING_RATE \
   trainer.algorithm.use_kl_loss=true \
   generator.backend=vllm \
-  generator.run_engines_locally=False \
+  generator.run_engines_locally=True \
   generator.enable_http_endpoint=False \
   generator.async_engine=true \
   generator.batched=true \
@@ -287,12 +307,6 @@ uv run --extra vllm \
   trainer.resume_mode=null \
   trainer.ckpt_path="$CHECKPOINT_DIR" \
   "$@"
-# comment out configures
-#   +generator.http_endpoint_host="$LLM_ENDPOINT_HOST" \
-#   +generator.http_endpoint_port=$LLM_ENDPOINT_PORT \
-#   +generator.rollout_timeout=$ROLLOUT_TIMEOUT \
-#   +generator.poll_interval=$POLL_INTERVAL \
-#   +generator.polling_verbose=true \
 
 echo ""
 echo "============================================================"
