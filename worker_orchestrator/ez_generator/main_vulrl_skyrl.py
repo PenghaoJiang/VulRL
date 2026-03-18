@@ -96,8 +96,20 @@ def main(cfg: DictConfig) -> None:
     # Validate the arguments
     validate_cfg(cfg)
     
-    # Initialize Ray
-    initialize_ray(cfg)
+    # Initialize Ray with GPU detection (instead of using initialize_ray)
+    import torch
+    from skyrl_train.utils.utils import prepare_runtime_environment
+    from skyrl_train.utils.ppo_utils import sync_registries
+    
+    env_vars = prepare_runtime_environment(cfg)
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    print(f"[VulRL] Initializing Ray with {num_gpus} GPUs")
+    
+    ray.init(
+        num_gpus=num_gpus,
+        runtime_env={"env_vars": env_vars}
+    )
+    sync_registries()
     
     # Run training loop
     ray.get(skyrl_entrypoint.remote(cfg))
