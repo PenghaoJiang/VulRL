@@ -2137,10 +2137,12 @@ class InteractivePoCPipelineV2:
             PoCBundle if successful, None otherwise
         """
         cve_id = scanner.extract_cve_id(cve_dir)
-        print(f"\n  Processing: {cve_id}")
+        vulhub_path = cve_id
+        folder_name = cve_id.replace("/", "_")
+        print(f"\n  Processing: {cve_id} → folder: {folder_name}")
 
         # 0. Check if results already exist
-        cve_result_dir = self.result_dir / cve_id
+        cve_result_dir = self.result_dir / folder_name
         required_files = ["poc.py", "verify.py", "requirements.txt"]
         if cve_result_dir.exists():
             existing_files = [f for f in required_files if (cve_result_dir / f).exists()]
@@ -2221,7 +2223,7 @@ class InteractivePoCPipelineV2:
             print(f"    [Agent1] PoC generated ({len(agent1_output.poc_script)} chars)")
 
             # Save Agent 1 trajectory
-            traj_file = self.result_dir / cve_id / "agent_1_traj.json"
+            traj_file = self.result_dir / folder_name / "agent_1_traj.json"
             traj_file.parent.mkdir(parents=True, exist_ok=True)
             with open(traj_file, 'w', encoding='utf-8') as f:
                 json.dump(agent1_output.conversation, f, indent=2, ensure_ascii=False)
@@ -2273,7 +2275,7 @@ class InteractivePoCPipelineV2:
                     agent1_trajectory=agent1_output.conversation,
                     agent2_trajectory=agent2_output.conversation
                 )
-                self._save_to_folder(cve_id, bundle)
+                self._save_to_folder(folder_name, bundle, vulhub_path)
                 return bundle
 
             print(f"    [Agent2] Verification script generated ({len(agent2_output.verify_script)} chars)")
@@ -2294,8 +2296,8 @@ class InteractivePoCPipelineV2:
             )
 
             # Save to folder
-            self._save_to_folder(cve_id, bundle)
-            print(f"    Saved to {self.result_dir / cve_id}")
+            self._save_to_folder(folder_name, bundle, vulhub_path)
+            print(f"    Saved to {self.result_dir / folder_name}")
 
             return bundle
 
@@ -2310,9 +2312,9 @@ class InteractivePoCPipelineV2:
             time.sleep(10)
             docker_env.cleanup()
 
-    def _save_to_folder(self, cve_id: str, bundle: PoCBundle):
+    def _save_to_folder(self, folder_name: str, bundle: PoCBundle, vulhub_path: str = None):
         """Save PoC bundle to folder."""
-        cve_dir = self.result_dir / cve_id
+        cve_dir = self.result_dir / folder_name
         cve_dir.mkdir(parents=True, exist_ok=True)
 
         (cve_dir / "poc.py").write_text(bundle.poc_script, encoding="utf-8")
@@ -2320,6 +2322,13 @@ class InteractivePoCPipelineV2:
         (cve_dir / "requirements.txt").write_text(
             "\n".join(bundle.requirements) + "\n", encoding="utf-8"
         )
+        
+        # Save metadata with original vulhub_path for traceability
+        if vulhub_path:
+            (cve_dir / "metadata.json").write_text(
+                json.dumps({"vulhub_path": vulhub_path, "folder_name": folder_name}, indent=2),
+                encoding="utf-8"
+            )
         
         # Save Agent 2 trajectory
         with open(cve_dir / "agent_2_traj.json", 'w', encoding='utf-8') as f:

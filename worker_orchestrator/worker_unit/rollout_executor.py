@@ -67,7 +67,7 @@ class RolloutExecutor:
                 "max_steps": request.max_steps,
                 "backend_config": {
                     "vulhub_path": request.vulhub_path,
-                    "vulhub_base_path": "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub"
+                    "vulhub_base_path": "/data1/jph/vulhub"
                 },
                 "target_host": "target",
                 "target_port": 80,
