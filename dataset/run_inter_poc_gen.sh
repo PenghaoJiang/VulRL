@@ -10,8 +10,9 @@ export OPENAI_API_KEY=$(cat /data1/jph/apikey.txt)
 # ============================================================================
 # Configuration
 # ============================================================================
-CVE_PATH="couchdb/CVE-2017-12635"  # Format: category/cve_id
-RESULT_DIR="/data1/jph/tmp/result_v3"
+# Can be overridden by exporting CVE_PATH before calling this script
+CVE_PATH="${CVE_PATH:-couchdb/CVE-2017-12635}"  # Format: category/cve_id
+RESULT_DIR="${RESULT_DIR:-/data1/jph/tmp/result_v3}"
 
 # Convert to flat folder name
 FOLDER_NAME=$(echo "$CVE_PATH" | tr '/' '_')  # "couchdb_CVE-2017-12635"
