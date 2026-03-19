@@ -2275,7 +2275,7 @@ class InteractivePoCPipelineV2:
                     agent1_trajectory=agent1_output.conversation,
                     agent2_trajectory=agent2_output.conversation
                 )
-                self._save_to_folder(folder_name, bundle, vulhub_path)
+                self._save_to_folder(folder_name, bundle, vulhub_path, source_cve_dir=cve_dir)
                 return bundle
 
             print(f"    [Agent2] Verification script generated ({len(agent2_output.verify_script)} chars)")
@@ -2296,7 +2296,7 @@ class InteractivePoCPipelineV2:
             )
 
             # Save to folder
-            self._save_to_folder(folder_name, bundle, vulhub_path)
+            self._save_to_folder(folder_name, bundle, vulhub_path, source_cve_dir=cve_dir)
             print(f"    Saved to {self.result_dir / folder_name}")
 
             return bundle
@@ -2312,7 +2312,7 @@ class InteractivePoCPipelineV2:
             time.sleep(10)
             docker_env.cleanup()
 
-    def _save_to_folder(self, folder_name: str, bundle: PoCBundle, vulhub_path: str = None):
+    def _save_to_folder(self, folder_name: str, bundle: PoCBundle, vulhub_path: str = None, source_cve_dir: Path = None):
         """Save PoC bundle to folder."""
         cve_dir = self.result_dir / folder_name
         cve_dir.mkdir(parents=True, exist_ok=True)
@@ -2329,6 +2329,16 @@ class InteractivePoCPipelineV2:
                 json.dumps({"vulhub_path": vulhub_path, "folder_name": folder_name}, indent=2),
                 encoding="utf-8"
             )
+        
+        # Copy README files from source CVE directory
+        if source_cve_dir:
+            readme_files = ["README.md", "README.zh-cn.md"]
+            for readme_file in readme_files:
+                source_readme = source_cve_dir / readme_file
+                if source_readme.exists():
+                    dest_readme = cve_dir / readme_file
+                    shutil.copy2(source_readme, dest_readme)
+                    print(f"    Copied {readme_file} to result folder")
         
         # Save Agent 2 trajectory
         with open(cve_dir / "agent_2_traj.json", 'w', encoding='utf-8') as f:
