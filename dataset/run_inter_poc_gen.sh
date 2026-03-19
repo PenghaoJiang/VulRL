@@ -17,8 +17,8 @@ RESULT_DIR="${RESULT_DIR:-/data1/jph/tmp/result_v3}"
 # Convert to flat folder name
 FOLDER_NAME=$(echo "$CVE_PATH" | tr '/' '_')  # "couchdb_CVE-2017-12635"
 
-# Clean previous results for this CVE
-rm -rf "${RESULT_DIR}/${FOLDER_NAME}"
+# # Clean previous results for this CVE
+# rm -rf "${RESULT_DIR}/${FOLDER_NAME}"
 
 # ============================================================================
 # Run test
