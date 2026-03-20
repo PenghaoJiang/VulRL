@@ -1965,7 +1965,7 @@ class VerifyAgentRunner:
             import tempfile
             try:
                 tmp_path = tempfile.mktemp(suffix=".py", prefix="verify_")
-                exit_code, write_out = self.host_executor.bash_host(
+                exit_code, stdout, stderr = self.host_executor.bash_host(
                     f"cat > {tmp_path} << 'VERIFY_SCRIPT_EOF'\n{script}\nVERIFY_SCRIPT_EOF"
                 )
                 project_name = self.host_executor.project_name
