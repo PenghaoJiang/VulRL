@@ -68,7 +68,7 @@ CASES=(
 )
 
 # Result directory (inherited by child script)
-export RESULT_DIR="/data1/jph/tmp/result_v3"
+export RESULT_DIR="/data1/jph/tmp/result_v4"
 
 # ============================================================================
 # Batch Processing

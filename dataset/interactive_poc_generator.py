@@ -1091,7 +1091,7 @@ Based on the exploitation steps above, create a standalone Python PoC script (po
 
 ## Workflow
 1. Write poc.py based on the successful exploitation steps
-2. Save it and execute it to confirm it works: `python3 /tmp/poc.py --host {target_host} --port <attack_port>`
+2. Save it and execute it to confirm it works: `python3 /tmp/poc.py` (without arguments)
 3. If it fails, debug and iterate
 4. Submit with submit_poc
 5. Submit requirements with submit_requirements (if needed)
@@ -1099,7 +1099,7 @@ Based on the exploitation steps above, create a standalone Python PoC script (po
 
 ## PoC Script Requirements (poc.py)
 - Must be a standalone Python 3 script
-- Must use argparse with --host and --port arguments (set --port default to the actual attack port)
+- The script must run successfully with just `python3 poc.py` (no arguments required)
 - Must print "[+] Exploitation successful!" on success
 - Must exit(0) on success, exit(1) on failure
 - Should include debug output showing what it's doing
