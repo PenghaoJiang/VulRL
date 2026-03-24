@@ -8,8 +8,8 @@ Each result folder should contain: metadata.json, poc.py, verify.py, README.md, 
 source /data1/jph/VulRL/.venv/bin/activate
 
 python dataset_converter_v2.py \
-  --input-list true_positives_v4.txt \
-  --output train_v4.parquet \
+  --input-list /data1/jph/VulRL/dataset/true_positive_v4.txt \
+  --output /data1/jph/VulRL/dataset/train_v4.parquet \
   --vulhub-base /data1/jph/vulhub
 
 """
@@ -257,6 +257,8 @@ class ResultFolderConverter:
             "tools": tools_json,
             "task_id": task_id,
             "metadata": json.dumps(metadata_dict, ensure_ascii=False),
+            "vulhub_path": vulhub_path,
+            "cve_id": task_id,
         }
 
     def _build_prompt(self, service_name: str, port: int, description: str) -> List[Dict[str, str]]:
@@ -295,6 +297,8 @@ class ResultFolderConverter:
         return {
             "task_id": task_id,
             "task_type": "vulhub",
+            "vulhub_path": vulhub_path,
+            "cve_id": task_id,
             "max_steps": 30,
             "timeout": 30,
             "target_host": service_name,
