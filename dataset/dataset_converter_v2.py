@@ -5,9 +5,11 @@ Converts result folders from interactive_poc_generator.py to 7-column SkyRL parq
 Each result folder should contain: metadata.json, poc.py, verify.py, README.md, requirements.txt
 
 # command to run
+source /data1/jph/VulRL/.venv/bin/activate
+
 python dataset_converter_v2.py \
-  --input-list dataset/true_positives_v4.txt \
-  --output data/train_v4.parquet \
+  --input-list true_positives_v4.txt \
+  --output train_v4.parquet \
   --vulhub-base /data1/jph/vulhub
 
 """
