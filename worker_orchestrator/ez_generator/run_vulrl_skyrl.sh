@@ -26,7 +26,7 @@ set -e  # Exit on error
 # -----------------------------------------------------------------------------
 
 # Model configuration
-MODEL_PATH="${MODEL_PATH:-/data1/jph/VulRL/models/qwen2.5-1.5b}"
+MODEL_PATH="${MODEL_PATH:-/data1/jph/VulRL/models/qwen2.5-7b-instruct}"
 MODEL_NAME="${MODEL_NAME:-qwen2.5-1.5b}"
 
 # -----------------------------------------------------------------------------
@@ -54,7 +54,7 @@ MODEL_NAME="${MODEL_NAME:-qwen2.5-1.5b}"
 WORKER_ROUTER_URL="http://localhost:12345"  # Hardcoded (for display only)
 
 # Training data (fixed path as requested)
-TRAIN_DATA="${TRAIN_DATA:-/data1/jph/VulRL/SkyRL/skyrl-train/vulrl_inside_skyrl/train.parquet}"
+TRAIN_DATA="${TRAIN_DATA:-/data1/jph/VulRL/worker_orchestrator/ez_generator/train_v4.parquet}"
 
 # Training parameters - MINIMAL FOR TESTING
 EPOCHS="${EPOCHS:-1}"                      # 1 epoch
@@ -75,7 +75,7 @@ CHECKPOINT_DIR="${CHECKPOINT_DIR:-/data1/jph/ckpts/vulrl_skyrl_test}"
 # For 10GB on 98GB GPU: 10/98 ≈ 0.10
 # For 15GB on 98GB GPU: 15/98 ≈ 0.15
 # Default 0.15 (~15GB) - adjust based on available memory
-GPU_MEMORY_UTILIZATION=0.15
+GPU_MEMORY_UTILIZATION=0.40
 
 # Logging
 LOGGER="wandb"  # Options: local, wandb, tensorboard
@@ -274,6 +274,7 @@ uv run --extra vllm \
   trainer.placement.policy_num_nodes=1 \
   trainer.placement.ref_num_nodes=1 \
   trainer.policy.sequence_parallel_size=1 \
+  trainer.ref.fsdp_config.cpu_offload=true \
   generator.num_inference_engines=$NUM_GPUS \
   generator.inference_engine_tensor_parallel_size=1 \
   trainer.epochs=$EPOCHS \
