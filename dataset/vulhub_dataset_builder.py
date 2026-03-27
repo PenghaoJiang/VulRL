@@ -1736,10 +1736,11 @@ class VulhubScanner:
         return has_readme and has_compose
 
     def extract_cve_id(self, cve_path: Path) -> str:
-        """从路径提取 CVE ID"""
-        match = re.search(r'(CVE-\d{4}-\d+)', str(cve_path), re.IGNORECASE)
-        if match:
-            return match.group(1).upper()
+        # """从路径提取 CVE ID"""
+        # match = re.search(r'(CVE-\d{4}-\d+)', str(cve_path), re.IGNORECASE)
+        # if match:
+        #     return match.group(1).upper()
+        """Extract CVE ID in category/id format (e.g., apache/CVE-2021-41773)"""
         return f"{cve_path.parent.name}/{cve_path.name}"
 
     def find_readme(self, cve_path: Path) -> Optional[Path]:

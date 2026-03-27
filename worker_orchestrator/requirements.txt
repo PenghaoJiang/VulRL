@@ -1,0 +1,31 @@
+# Worker Orchestrator Dependencies
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Redis
+redis==5.0.1
+
+# HTTP Client
+aiohttp==3.9.1
+
+# Configuration
+pyyaml==6.0.1
+python-dotenv==1.0.0
+omegaconf==2.3.0  # Required for ez_generator (SkyRL compatibility)
+
+# Docker (for worker_unit)
+docker==7.0.0
+
+# Data processing (for VulhubReward BLEU-based reward computation)
+pandas==2.2.0
+pyarrow==15.0.0  # Required for parquet support
+
+# Utilities
+python-multipart==0.0.6
+
+# vLLM for ez_llm_server (optional - install separately if needed)
+# vllm>=0.6.0  # Uncomment to install with main requirements
