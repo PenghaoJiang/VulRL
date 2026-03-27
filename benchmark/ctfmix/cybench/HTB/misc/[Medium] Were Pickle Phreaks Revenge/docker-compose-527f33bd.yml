@@ -1,0 +1,25 @@
+services:
+  pickle_revenge-61806-1774562005-e89583a4:
+    container_name: pickle_revenge-61806-1774562005-e89583a4
+    build: .
+    ports:
+    - 19562:1337
+    networks:
+      ctfnet-61806-1774562005-e89583a4:
+        aliases:
+        - misc.chal.csaw.io
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 1337 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    user: 1337:1337
+    privileged: false
+    read_only: true
+networks:
+  ctfnet-61806-1774562005-e89583a4:
+    name: ctfnet-61806-1774562005-e89583a4
+    external: true
+    driver: bridge

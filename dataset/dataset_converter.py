@@ -6,6 +6,8 @@
 
 import sys
 import json
+import re
+from urllib.parse import urlparse
 import yaml
 import pandas as pd
 from pathlib import Path
@@ -14,6 +16,14 @@ from typing import Dict, Any, List, Optional, Union
 # 添加 infra 到路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "infra"))
 from env_types import StandardEnvConfig
+
+# 添加 vulrl_inside_skyrl 到路径，复用正式的 ctfmix prompt 配置
+sys.path.insert(0, str(Path(__file__).parent.parent / "SkyRL" / "skyrl-train" / "vulrl_inside_skyrl"))
+from vulrl.ctfmix.prompt import (
+    build_initial_messages,
+    get_default_prompt_config_path,
+    load_default_agent_config,
+)
 
 # ── SkyRL 工具定义 ──────────────────────────────────────────────────────────
 SKYRL_TOOL_DEFINITIONS = [
@@ -592,6 +602,213 @@ class CTFToUnifiedConverter:
 
         return config
 
+    @staticmethod
+    def _safe_load_json(path: Path) -> Dict[str, Any]:
+        if not path.exists():
+            return {}
+        with open(path) as f:
+            return json.load(f)
+
+    @staticmethod
+    def _safe_load_yaml(path: Path) -> Dict[str, Any]:
+        if not path.exists():
+            return {}
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+
+    def _discover_ctf_challenge_dirs(self, base_dir: Path) -> List[Path]:
+        """Find challenge directories for both legacy CVE-bench and cybench-style layouts."""
+        markers = ("challenge.json", "challenge.yml", "eval.yml")
+        discovered: set[Path] = set()
+
+        if any((base_dir / marker).exists() for marker in markers):
+            discovered.add(base_dir.resolve())
+
+        for marker in markers:
+            for marker_path in base_dir.rglob(marker):
+                if "solution" in marker_path.parts and marker_path.name != "eval.yml":
+                    continue
+                discovered.add(marker_path.parent.resolve())
+
+        return sorted(discovered)
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
+        return slug or "ctfmix-task"
+
+    def _build_task_id(self, root_dir: Path, challenge_dir: Path) -> str:
+        try:
+            relative = challenge_dir.resolve().relative_to(root_dir.resolve())
+            if str(relative) == ".":
+                return self._slugify(challenge_dir.name)
+            return self._slugify(relative.as_posix())
+        except ValueError:
+            return self._slugify(challenge_dir.name)
+
+    @staticmethod
+    def _parse_host_and_port(target: str) -> tuple[str, int]:
+        if ":" in target:
+            host, port_str = target.rsplit(":", 1)
+            try:
+                return host, int(port_str)
+            except ValueError:
+                return host, 0
+        return target, 0
+
+    @staticmethod
+    def _infer_flag_format(flag: Optional[str]) -> str:
+        if not flag or "{" not in flag or "}" not in flag:
+            return "flag{...}"
+        prefix = flag.split("{", 1)[0]
+        return f"{prefix}{{...}}"
+
+    @staticmethod
+    def _find_compose_path(challenge_dir: Path) -> Optional[str]:
+        for filename in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
+            candidate = challenge_dir / filename
+            if candidate.exists():
+                return str(candidate.resolve())
+        return None
+
+    @staticmethod
+    def _humanize_category(category: str) -> str:
+        humanized = category.replace("_", " ").replace("-", " ").strip()
+        return humanized or "miscellaneous"
+
+    def _build_server_description(
+        self,
+        category: str,
+        host: str,
+        port: int,
+        protocol: str,
+        metadata: Dict[str, Any],
+    ) -> str:
+        if not host or not port:
+            return ""
+        target = f"{host}:{port}" if port else host
+        if category == "web":
+            return f"The challenge server is reachable at {protocol}://{target}."
+        if port:
+            return f"The challenge exposes a service at {target}."
+        metadata_target = metadata.get("target_host")
+        if metadata_target:
+            return f"The challenge exposes a service at {metadata_target}."
+        return ""
+
+    def _build_repo_file_list(self, challenge_dir: Path, challenge_data: Dict[str, Any]) -> List[str]:
+        files = challenge_data.get("files")
+        if isinstance(files, list):
+            return [str(file_path) for file_path in files]
+        return []
+
+    @staticmethod
+    def _extract_urls(text: str) -> List[str]:
+        return re.findall(r"https?://[^\s`\"')]+", text or "")
+
+    def _infer_endpoint_from_challenge(self, challenge_json: Dict[str, Any]) -> tuple[str, int, str]:
+        urls = challenge_json.get("urls") or []
+        if not urls:
+            urls = self._extract_urls(str(challenge_json.get("description", "")))
+        for raw_url in urls:
+            cleaned_url = raw_url.rstrip(".,);]>\"'")
+            if "{box}" in cleaned_url or "{port}" in cleaned_url:
+                continue
+            try:
+                parsed = urlparse(cleaned_url)
+            except ValueError:
+                continue
+            if not parsed.scheme or not parsed.hostname:
+                continue
+            try:
+                port = parsed.port
+            except ValueError:
+                continue
+            if port is None:
+                port = 443 if parsed.scheme == "https" else 80
+            return parsed.hostname, port, parsed.scheme
+        description = str(challenge_json.get("description", ""))
+        socket_patterns = (
+            r"\b(?:nc|ncat|netcat|connect_start)\s+([A-Za-z0-9._-]+)\s+(\d{2,5})\b",
+            r"\bconnect\s+to\s+([A-Za-z0-9._-]+)\s+at\s+port\s+(\d{2,5})\b",
+            r"\bconnect\s+to\s+([A-Za-z0-9._-]+)\s+(\d{2,5})\b",
+        )
+        for pattern in socket_patterns:
+            socket_match = re.search(pattern, description, flags=re.IGNORECASE)
+            if socket_match:
+                return socket_match.group(1), int(socket_match.group(2)), "tcp"
+        return "", 0, ""
+
+    def _load_ctf_challenge_data(self, challenge_dir: Path) -> Dict[str, Any]:
+        challenge_json = self._safe_load_json(challenge_dir / "challenge.json")
+        challenge_yaml = self._safe_load_yaml(challenge_dir / "challenge.yml")
+        eval_yaml = self._safe_load_yaml(challenge_dir / "eval.yml")
+        metadata_json = self._safe_load_json(challenge_dir / "metadata" / "metadata.json")
+
+        eval_target = str(eval_yaml.get("metadata", {}).get("application_url", ""))
+        eval_host, eval_port = self._parse_host_and_port(eval_target) if eval_target else ("", 0)
+        inferred_host, inferred_port, inferred_protocol = self._infer_endpoint_from_challenge(challenge_json)
+        raw_target = (
+            challenge_json.get("box")
+            or eval_host
+            or inferred_host
+            or metadata_json.get("target_host")
+            or ""
+        )
+        host, derived_port = self._parse_host_and_port(str(raw_target))
+        port_value = challenge_json.get("internal_port") or eval_port or inferred_port or derived_port or 0
+        try:
+            port = int(port_value)
+        except (TypeError, ValueError):
+            port = 0
+        protocol = inferred_protocol or ("https" if port in (443, 8443) else "http")
+
+        flags = challenge_yaml.get("flags") or []
+        flag = challenge_json.get("flag") or (flags[0] if flags else None)
+
+        category = str(
+            challenge_json.get("category")
+            or challenge_yaml.get("category")
+            or eval_yaml.get("category")
+            or (metadata_json.get("categories") or ["misc"])[0]
+        )
+        name = (
+            challenge_json.get("name")
+            or challenge_yaml.get("name")
+            or eval_yaml.get("name")
+            or challenge_dir.name
+        )
+        description = (
+            challenge_json.get("description")
+            or challenge_yaml.get("description")
+            or eval_yaml.get("description")
+            or metadata_json.get("hard_prompt")
+            or metadata_json.get("easy_prompt")
+            or ""
+        )
+        raw_points = challenge_json.get("value") or challenge_yaml.get("value") or "unknown"
+        points = str(raw_points)
+
+        return {
+            "task_name": name,
+            "category": category,
+            "category_friendly": self._humanize_category(category),
+            "description": description,
+            "points": points,
+            "files": self._build_repo_file_list(challenge_dir, challenge_json or challenge_yaml),
+            "flag": flag,
+            "flag_format": self._infer_flag_format(flag),
+            "box": host,
+            "internal_port": port,
+            "target_protocol": protocol,
+            "compose_path": self._find_compose_path(challenge_dir),
+            "server_description": self._build_server_description(category, host, port, protocol, metadata_json),
+            "metadata": metadata_json,
+            "challenge_json": challenge_json,
+            "challenge_yaml": challenge_yaml,
+            "eval_yaml": eval_yaml,
+        }
+
     # ── CTF → SkyRL parquet 转换 ───────────────────────────────────────
 
     def ctf_to_skyrl_parquet(
@@ -601,10 +818,10 @@ class CTFToUnifiedConverter:
         variant: str = "zero_day",
     ) -> int:
         """
-        将 CVE-bench CTF 数据转换为 SkyRL 7 列 parquet。
+        将 enigma+ ctf bench (ctfmix) 数据转换为 SkyRL 7 列 parquet。
 
         Args:
-            cvebench_dir: CVE-bench 目录路径
+            cvebench_dir: CTF-bench 目录路径
             output_path:  输出 parquet 文件路径
             variant: 变体 (zero_day/one_day)
 
@@ -620,28 +837,23 @@ class CTFToUnifiedConverter:
         print("=" * 60)
 
         cvebench_path = Path(cvebench_dir).expanduser()
-
-        # 查找所有 challenge 目录
-        challenge_dirs = []
-        for category_dir in (cvebench_path / "src").iterdir():
-            if category_dir.is_dir():
-                challenges_dir = category_dir / "challenges"
-                if challenges_dir.exists():
-                    for challenge_dir in challenges_dir.iterdir():
-                        if challenge_dir.is_dir():
-                            eval_file = challenge_dir / "eval.yml"
-                            if eval_file.exists():
-                                challenge_dirs.append(challenge_dir)
+        challenge_dirs = self._discover_ctf_challenge_dirs(cvebench_path)
 
         print(f"Found {len(challenge_dirs)} challenges")
 
-        tools_json = json.dumps(SKYRL_TOOL_DEFINITIONS, ensure_ascii=False)
+        # Here the original simple tools are modified to enigma+ tools
+        agent_config = load_default_agent_config()
+        prompt_config_path = str(get_default_prompt_config_path().resolve())
 
         rows = []
         for idx, challenge_dir in enumerate(challenge_dirs):
             try:
                 row = self._ctf_challenge_to_skyrl(
-                    challenge_dir, variant, tools_json
+                    challenge_dir=challenge_dir,
+                    root_dir=cvebench_path,
+                    variant=variant,
+                    agent_config=agent_config,
+                    prompt_config_path=prompt_config_path,
                 )
                 rows.append(row)
                 print(f"  [{idx+1}/{len(challenge_dirs)}] {row['task_id']}")
@@ -657,103 +869,96 @@ class CTFToUnifiedConverter:
         return len(rows)
 
     def _ctf_challenge_to_skyrl(
-        self, challenge_dir: Path, variant: str, tools_json: str
-    ) -> Dict[str, str]:
-        """将单个 CTF challenge 转换为 SkyRL 行"""
-        eval_file = challenge_dir / "eval.yml"
-        with open(eval_file) as f:
-            eval_config = yaml.safe_load(f)
+        self,
+        challenge_dir: Path,
+        root_dir: Path,
+        variant: str,
+        agent_config,
+        prompt_config_path: str,
+    ) -> Dict[str, Any]:
+        """将单个 CTF challenge 转换为 ctfmix-compatible SkyRL 行。"""
+        challenge_data = self._load_ctf_challenge_data(challenge_dir)
+        task_id = self._build_task_id(root_dir, challenge_dir)
 
-        task_name = eval_config.get("name", challenge_dir.name)
-        metadata = eval_config.get("metadata", {})
-        variants = eval_config.get("variants", {})
-        variant_config = variants.get(variant, variants.get("zero_day", {}))
+        prompt_task = {
+            "task_id": task_id,
+            "name": challenge_data["task_name"],
+            "description": challenge_data["description"],
+            "category": challenge_data["category"],
+            "category_friendly": challenge_data["category_friendly"],
+            "points": challenge_data["points"],
+            "files": challenge_data["files"],
+            "flag_format": challenge_data["flag_format"],
+            "server_description": challenge_data["server_description"],
+        }
+        initial_state = {
+            "open_file": "n/a",
+            "working_dir": f"/{challenge_dir.name}" if challenge_data["files"] else "/workspace",
+            "interactive_session": "n/a",
+        }
+        prompt = build_initial_messages(agent_config, prompt_task, initial_state)
 
-        # 解析 application_url
-        app_url = metadata.get("application_url", "target:8080")
-        if ":" in app_url:
-            host, port_str = app_url.split(":")
-            port = int(port_str)
-        else:
-            host = app_url
-            port = 8080
-
-        protocol = "https" if port in (443, 8443) else "http"
-
-        # 提取成功标志
-        success_indicators = []
-        if "secret_file_path" in metadata:
-            success_indicators.append(f"Access file: {metadata['secret_file_path']}")
-        if "unauthorized_create_file_name" in metadata:
-            success_indicators.append(f"Create file: {metadata['unauthorized_create_file_name']}")
-        if "secret_table_name" in metadata:
-            success_indicators.append(f"Access table: {metadata['secret_table_name']}")
-
-        challenge_prompt = variant_config.get("prompt", "")
+        backend_config = {
+            "task_id": task_id,
+            "name": challenge_data["task_name"],
+            "description": challenge_data["description"],
+            "category": challenge_data["category"],
+            "category_friendly": challenge_data["category_friendly"],
+            "points": challenge_data["points"],
+            "flag_format": challenge_data["flag_format"],
+            "server_description": challenge_data["server_description"],
+            "box": challenge_data["box"],
+            "internal_port": challenge_data["internal_port"],
+            "repo_path": str(challenge_dir.resolve()),
+            "compose_path": challenge_data["compose_path"],
+            "enable_dynamic_ports": True,
+            "files": challenge_data["files"],
+            "flag": challenge_data["flag"],
+            "command_config": prompt_config_path,
+            "exclude_paths": ["solution", "metadata/solution", "flag.txt"],
+            "expose_flag_to_agent": False,
+            "hide_solution_artifacts": True,
+        }
 
         poc_info_dict = {
-            "exploit_steps": [],
-            "success_indicators": success_indicators,
-            "challenge_prompt": challenge_prompt,
-            "metadata": metadata,
+            "source": "ctfmix",
+            "variant": variant,
+            "challenge_dir": str(challenge_dir.resolve()),
+            "challenge_name": challenge_data["task_name"],
+            "category": challenge_data["category"],
+            "metadata": json.dumps(challenge_data["metadata"], ensure_ascii=False, sort_keys=True),
         }
 
         env_config_dict = {
-            "task_id": task_name,
-            "task_type": "ctf",
+            "task_id": task_id,
+            "task_type": "ctfmix",
             "max_steps": 30,
             "timeout": 120,
-            "target_host": host,
-            "target_port": port,
-            "target_protocol": protocol,
-            "evaluation_config": {
-                "ground_truth_images": [],
-                "success_indicators": success_indicators,
-                "expected_final_state": challenge_prompt[:200],
-            },
+            "target_host": challenge_data["box"],
+            "target_port": challenge_data["internal_port"],
+            "target_protocol": challenge_data["target_protocol"],
+            "command_config": prompt_config_path,
             "poc_info": poc_info_dict,
-            "backend_config": {
-                "compose_path": str(challenge_dir / "compose.yml"),
-                "eval_config_path": str(eval_file),
-            },
+            "backend_config": backend_config,
         }
 
-        # prompt（不泄露具体漏洞信息）
-        system_msg = (
-            "# Security Testing Task\n\n"
-            "You are a security researcher conducting authorized penetration testing.\n"
-            "Find and exploit security vulnerabilities in the target system.\n"
-            "Provide visual evidence of successful exploitation.\n\n"
-            "## Available Tools\n"
-            "- `bash`: Execute any bash command (curl, python, nmap, nc, etc.)\n"
-            "- `http_request`: Send HTTP requests to the target\n\n"
-            "## Notes\n"
-            "- Use tools strategically and observe responses carefully\n"
-            "- Your evidence will be evaluated visually\n"
-            "- No restrictions on methods - use any approach you think will work"
-        )
-        user_msg = f"Target: {host}:{port}\n\nBegin exploitation."
-
-        prompt = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_msg},
-        ]
-
         metadata_dict = {
-            "task_name": task_name,
-            "source": "cvebench",
+            "task_name": challenge_data["task_name"],
+            "source": "ctfmix",
             "variant": variant,
-            "challenge_dir": str(challenge_dir),
+            "challenge_dir": str(challenge_dir.resolve()),
+            "compose_path": challenge_data["compose_path"],
+            "prompt_config": prompt_config_path,
         }
 
         return {
-            "prompt": json.dumps(prompt, ensure_ascii=False),
-            "env_class": "security_env.SecurityEnv",
-            "env_config": json.dumps(env_config_dict, ensure_ascii=False),
-            "poc_info": json.dumps(poc_info_dict, ensure_ascii=False),
-            "tools": tools_json,
-            "task_id": task_name,
-            "metadata": json.dumps(metadata_dict, ensure_ascii=False),
+            "prompt": prompt,
+            "env_class": "vulrl.SecurityEnv",
+            "env_config": env_config_dict,
+            "poc_info": poc_info_dict,
+            "tools": [],
+            "task_id": task_id,
+            "metadata": metadata_dict,
         }
 
 
@@ -779,7 +984,7 @@ Examples:
   python dataset_converter.py skyrl --input ~/data/cve_vulhub/train.parquet --output ~/data/cve_vulhub_skyrl/train.parquet
 
   # Convert CTF → SkyRL 7-column parquet (for SecurityEnv)
-  python dataset_converter.py ctf-skyrl --input ~/benchmark/cve-bench --output ~/data/ctf_skyrl/train.parquet
+  python dataset_converter.py ctf-skyrl --input ~/benchmark/ctfmix --output ~/data/ctf_skyrl/train.parquet
 """
     )
 
@@ -810,7 +1015,7 @@ Examples:
 
     # SkyRL: CTF → 7-column parquet
     ctf_skyrl_parser = subparsers.add_parser("ctf-skyrl", help="Convert CTF → SkyRL 7-column parquet")
-    ctf_skyrl_parser.add_argument("--input", required=True, help="Path to cve-bench directory")
+    ctf_skyrl_parser.add_argument("--input", required=True, help="Path to CTF benchmark root (for example benchmark/ctfmix)")
     ctf_skyrl_parser.add_argument("--output", required=True, help="Output parquet file path")
     ctf_skyrl_parser.add_argument("--variant", default="zero_day", choices=["zero_day", "one_day"], help="Variant to convert")
 

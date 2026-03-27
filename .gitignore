@@ -140,3 +140,10 @@ dmypy.json
 *.zip
 *.iso
 *.dmg
+
+
+
+infra/__pycache__/*
+infra/ctfmix_examples/*
+infra/outputs/*
+infra/main_training_debug.py

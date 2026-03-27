@@ -1,0 +1,16 @@
+services:
+  noisiercrc-61806-1774562342-17a17928:
+    container_name: noisiercrc-61806-1774562342-17a17928
+    build:
+      context: ./challenge
+    ports:
+    - 19368:9999
+    networks:
+      ctfnet-61806-1774562342-17a17928:
+        aliases:
+        - crypt.chal.csaw.io
+networks:
+  ctfnet-61806-1774562342-17a17928:
+    name: ctfnet-61806-1774562342-17a17928
+    external: true
+    driver: bridge

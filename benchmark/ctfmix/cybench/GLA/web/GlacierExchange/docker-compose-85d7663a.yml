@@ -1,0 +1,21 @@
+services:
+  glacier_exchange-latest-cb02ec6090-88c2f1ac0ec6dfb9ada3:
+    container_name: glacier_exchange-latest-cb02ec6090-88c2f1ac0ec6dfb9ada3
+    build: .
+    ports:
+    - 13837:8080
+    networks:
+      ctfnet-latest-cb02ec6090-88c2f1ac0ec6dfb9ada3: null
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 8080 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: always
+networks:
+  ctfnet-latest-cb02ec6090-88c2f1ac0ec6dfb9ada3:
+    name: ctfnet-latest-cb02ec6090-88c2f1ac0ec6dfb9ada3
+    external: true
+    driver: bridge

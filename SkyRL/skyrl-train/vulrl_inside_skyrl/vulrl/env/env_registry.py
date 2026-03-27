@@ -1,7 +1,7 @@
 """Environment adapter registry and factory."""
 
 from typing import Dict, Any, Type
-from vulrl.docker.base import BaseEnvAdapter
+from vulrl.docker1.base import BaseEnvAdapter
 
 
 class EnvRegistry:
@@ -67,9 +67,10 @@ class EnvRegistry:
 def _register_default_adapters():
     """Register default adapters on module import."""
     try:
-        from vulrl.docker.adapters import CveBenchAdapter, VulhubAdapter, XbowAdapter
+        from vulrl.docker1.adapters import CTFMixAdapter, CveBenchAdapter, VulhubAdapter, XbowAdapter
         
         EnvRegistry.register('cvebench', CveBenchAdapter)
+        EnvRegistry.register('ctfmix', CTFMixAdapter)
         EnvRegistry.register('vulhub', VulhubAdapter)
         EnvRegistry.register('xbow', XbowAdapter)
         

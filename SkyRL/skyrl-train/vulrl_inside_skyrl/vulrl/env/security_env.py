@@ -5,7 +5,6 @@ Gymnasium-compliant interface for vulnerability exploitation training.
 
 import json
 from typing import Dict, Any, Optional, Union, Tuple
-from pathlib import Path
 
 # Gymnasium import (required)
 import gymnasium as gym
@@ -20,7 +19,7 @@ except ImportError:
     BaseTextEnvStepOutput = None
     SKYRL_AVAILABLE = False
 
-from vulrl.docker.base import BaseEnvAdapter, StandardAction, StandardObservation, StandardInfo, ActionType
+from vulrl.docker1.base import BaseEnvAdapter, StandardAction, StandardObservation, StandardInfo, ActionType
 from vulrl.env.env_registry import EnvRegistry
 from vulrl.reward import RewardRouter
 
@@ -75,17 +74,43 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         
         # Trajectory storage (for reward computation)
         self.trajectory = []
+        self.failed_to_setup = False
         
         # Setup adapter with error handling
         try:
             self.adapter.setup()
-        except RuntimeError as e:
+        except Exception as e:
             print(f"[SecurityEnv] WARNING: Failed to setup adapter: {e}")
             # Mark as failed but don't crash - let training continue
             self.failed_to_setup = True
         
         print(f"[SecurityEnv] Initialized: task_id={self.task_id}, task_type={self.config.get('task_type')}")
-    
+
+    @staticmethod
+    def _normalize_config_value(value: Any) -> Any:
+        """Best-effort decode of JSON-encoded nested config fields."""
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                try:
+                    return json.loads(stripped)
+                except json.JSONDecodeError:
+                    return value
+        return value
+
+    def _merge_config_source(self, result: Dict[str, Any], source: Optional[Dict[str, Any]]) -> None:
+        if not source:
+            return
+
+        normalized = {
+            key: self._normalize_config_value(value)
+            for key, value in source.items()
+        }
+        nested_env_config = normalized.pop("env_config", None)
+        if isinstance(nested_env_config, dict):
+            result.update(nested_env_config)
+        result.update(normalized)
+
     def _parse_config(
         self,
         config: Optional[Dict],
@@ -94,15 +119,12 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
     ) -> Dict[str, Any]:
         """Parse configuration from multiple sources."""
         result = {}
-        
+
         # Priority: config > extras > env_config
-        if env_config:
-            result.update(env_config)
-        if extras:
-            result.update(extras)
-        if config:
-            result.update(config)
-        
+        self._merge_config_source(result, env_config)
+        self._merge_config_source(result, extras)
+        self._merge_config_source(result, config)
+
         # Set defaults
         result.setdefault('task_type', 'vulhub')
         result.setdefault('task_id', 'unknown')
@@ -110,12 +132,41 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         result.setdefault('max_episodes', 100)
         
         return result
-    
+
+    @staticmethod
+    def _info_to_dict(info: Any) -> Dict[str, Any]:
+        if hasattr(info, "to_dict"):
+            return info.to_dict()
+        if isinstance(info, dict):
+            return info
+        return {}
+
+    def _perform_reset(self) -> Tuple[StandardObservation, StandardInfo]:
+        """Shared reset logic for Gymnasium reset() and SkyRL init()."""
+        if self.failed_to_setup:
+            raise RuntimeError(f"Environment adapter failed to setup for task {self.task_id}")
+
+        self.current_step = 0
+        self.current_episode += 1
+        self.trajectory = []
+
+        self._update_progress()
+
+        observation, info = self.adapter.reset()
+
+        self.trajectory.append({
+            'step': self.current_step,
+            'observation': observation,
+            'action': None,
+            'reward': 0.0
+        })
+        return observation, info
+
     def reset(
         self,
         seed: Optional[int] = None,
         options: Optional[Dict] = None
-    ) -> Union[Tuple[str, Dict], StandardObservation]:
+    ) -> Tuple[StandardObservation, StandardInfo]:
         """
         Reset environment to initial state.
         
@@ -126,32 +177,30 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         Returns:
             (observation, info) tuple
         """
-        # Reset counters
-        self.current_step = 0
-        self.current_episode += 1
-        self.trajectory = []
-        
-        # Update progress
-        self._update_progress()
-        
-        # Reset adapter
-        observation, info = self.adapter.reset()
-        
-        # Store in trajectory
-        self.trajectory.append({
-            'step': self.current_step,
-            'observation': observation,
-            'action': None,
-            'reward': 0.0
-        })
+        observation, info = self._perform_reset()
         
         print(f"[SecurityEnv] Reset: episode={self.current_episode}, task={self.task_id}")
         
-        if SKYRL_AVAILABLE:
-            return observation
-        else:
-            return observation, info
-    
+        return observation, info
+
+    def init(self, prompt):
+        """
+        SkyRL initialization hook.
+
+        SkyRL calls init(prompt) before the first step, so we must trigger the
+        real environment reset here. The dataset prompt remains authoritative;
+        we only fall back to the runtime-generated prompt when the dataset
+        prompt is empty.
+        """
+        observation, info = self._perform_reset()
+        obs_text = observation.text if hasattr(observation, "text") else str(observation)
+        metadata = self._info_to_dict(info)
+        metadata["reset_observation"] = obs_text
+
+        if prompt:
+            return prompt, metadata
+        return [{"role": "user", "content": obs_text}], metadata
+
     def step(
         self,
         action: Union[str, Dict, StandardAction]
@@ -165,6 +214,9 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         Returns:
             (observation, reward, terminated, truncated, info) tuple
         """
+        if self.failed_to_setup:
+            raise RuntimeError(f"Environment adapter failed to setup for task {self.task_id}")
+
         self.current_step += 1
         
         # Convert action to StandardAction if needed
@@ -194,10 +246,17 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
         
         # Compute final reward if episode is done
         if done:
-            final_reward = self.reward_router.compute_reward(
-                trajectory=self.trajectory,
-                task_id=self.task_id
-            )
+            final_reward = None
+
+            # For CTFMix bench, we directly use get_terminal_reward, otherwise use compute_reward
+            if hasattr(self.adapter, "get_terminal_reward"):
+                final_reward = self.adapter.get_terminal_reward()
+
+            if final_reward is None:
+                final_reward = self.reward_router.compute_reward(
+                    trajectory=self.trajectory,
+                    task_id=self.task_id
+                )
             reward = final_reward
             print(f"[SecurityEnv] Episode done: steps={self.current_step}, reward={reward:.2f}")
         
@@ -212,7 +271,7 @@ class SecurityEnv(BaseTextEnv if SKYRL_AVAILABLE else gym.Env):
                 observations=observations,
                 reward=reward,
                 done=done,
-                info=info
+                metadata=self._info_to_dict(info)
             )
         else:
             return observation, reward, terminated, truncated, info

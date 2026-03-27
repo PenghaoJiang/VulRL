@@ -1,0 +1,24 @@
+services:
+  unbreakable-96536-1774517680-232fc5fb:
+    container_name: unbreakable-96536-1774517680-232fc5fb
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+    - 18667:1337
+    networks:
+      ctfnet-96536-1774517680-232fc5fb:
+        aliases:
+        - misc.chal.csaw.io
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 1337 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+networks:
+  ctfnet-96536-1774517680-232fc5fb:
+    name: ctfnet-96536-1774517680-232fc5fb
+    external: true
+    driver: bridge

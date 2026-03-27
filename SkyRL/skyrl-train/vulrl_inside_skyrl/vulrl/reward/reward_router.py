@@ -20,15 +20,16 @@ class RewardRouter:
 
     def _get_reward_implementation(self):
         """Get task-specific reward implementation."""
-        from vulrl.reward.task_specific import CVEBenchReward, VulhubReward, XbowReward
+        from vulrl.reward.task_specific import CTFMixReward, CVEBenchReward, VulhubReward, XbowReward
 
-        implementations = {
-            'cvebench': CVEBenchReward(self.config),
-            'vulhub': VulhubReward(self.config),
-            'xbow': XbowReward(self.config),
+        implementation_classes = {
+            'ctfmix': CTFMixReward,
+            'cvebench': CVEBenchReward,
+            'vulhub': VulhubReward,
+            'xbow': XbowReward,
         }
-
-        return implementations.get(self.task_type, CVEBenchReward(self.config))
+        reward_cls = implementation_classes.get(self.task_type, CVEBenchReward)
+        return reward_cls(self.config)
 
     def compute_reward(
         self,

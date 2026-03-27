@@ -8,3 +8,5 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+cve_exploit_env.py
+main_training.py

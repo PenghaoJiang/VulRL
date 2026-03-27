@@ -1,0 +1,23 @@
+services:
+  frogwaf-latest-8029f5e604-3a7b67285a3fb94f70e1:
+    container_name: frogwaf-latest-8029f5e604-3a7b67285a3fb94f70e1
+    build: ./metadata/challenge
+    ports:
+    - 11999:1337
+    networks:
+      ctfnet-latest-8029f5e604-3a7b67285a3fb94f70e1:
+        aliases:
+        - web.chal.csaw.io
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 1337 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: always
+networks:
+  ctfnet-latest-8029f5e604-3a7b67285a3fb94f70e1:
+    name: ctfnet-latest-8029f5e604-3a7b67285a3fb94f70e1
+    external: true
+    driver: bridge

@@ -1,0 +1,24 @@
+services:
+  ezmaze-61806-1774562325-b9a749d5:
+    container_name: ezmaze-61806-1774562325-b9a749d5
+    build: ./challenge/
+    ports:
+    - 19685:9999
+    networks:
+      ctfnet-61806-1774562325-b9a749d5:
+        aliases:
+        - crypto.chal.csaw.io
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 9999 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    privileged: false
+    read_only: true
+networks:
+  ctfnet-61806-1774562325-b9a749d5:
+    name: ctfnet-61806-1774562325-b9a749d5
+    external: true
+    driver: bridge
