@@ -1,10 +1,12 @@
 """
 Execute a complete VulRL rollout (episode).
 Self-contained - no imports from SkyRL folders.
+
+Updated to support pluggable agents (DemoAgent, CTFAgent).
 """
 
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Import from worker_orchestrator modules only
 from worker_router.models import RolloutRequest, RolloutResult, TrajectoryStep
@@ -13,7 +15,11 @@ from ez_llm_server.client import InferenceEngineClientWrapper
 # Import from worker_unit modules (copied from vulrl_inside_skyrl)
 from worker_unit.env import SecurityEnv
 from worker_unit.reward import RewardCalculator
-from worker_unit.agent_loop import agent_loop
+# from worker_unit.agent_loop import agent_loop  # OLD: Commented out, using agents instead
+
+# Import agents
+from worker_unit.agent.demo_agent import DemoAgent
+from worker_unit.agent.ctf_agent import CTFAgent
 
 
 class RolloutExecutor:
@@ -25,12 +31,19 @@ class RolloutExecutor:
         #       leading to potential issues when running on different machines (using the same file path of the parquet). 
         pass
     
-    async def execute(self, request: RolloutRequest) -> RolloutResult:
+    async def execute(
+        self,
+        request: RolloutRequest,
+        agent_type: str = "demo"
+    ) -> RolloutResult:
         """
-        Execute a complete rollout.
+        Execute a complete rollout with specified agent.
         
         Args:
             request: RolloutRequest with CVE, prompt, LLM config
+            agent_type: Type of agent to use ("demo" or "ctf")
+                - "demo": Simple bash command agent (original agent_loop logic)
+                - "ctf": Advanced CTFMix agent with thought/action parsing
             
         Returns:
             RolloutResult with trajectory and rewards
@@ -60,6 +73,14 @@ class RolloutExecutor:
             
             # 2. Initialize environment
             print("[RolloutExecutor] Initializing environment...")
+            
+            # Get vulhub_base_path from metadata or use default
+            vulhub_base_path = request.metadata.get(
+                "vulhub_base_path",
+                "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub" 
+                ## on phj machine: "/data1/jph/vulhub"
+            )
+            
             env_config = {
                 "task_type": "vulhub",
                 "task_id": request.cve_id,
@@ -67,7 +88,7 @@ class RolloutExecutor:
                 "max_steps": request.max_steps,
                 "backend_config": {
                     "vulhub_path": request.vulhub_path,
-                    "vulhub_base_path": "/data1/jph/vulhub"
+                    "vulhub_base_path": vulhub_base_path
                 },
                 "target_host": "target",
                 "target_port": 80,
@@ -81,20 +102,66 @@ class RolloutExecutor:
             # 3. Reset environment
             print("[RolloutExecutor] Resetting environment...")
             observation, info = env.reset()
-            print(f"[RolloutExecutor] Initial observation: {observation[:200]}...")
             
-            # 4. Run agent loop
-            print("[RolloutExecutor] Starting agent loop...")
-            trajectory = await agent_loop(
-                env=env,
-                llm_client=llm_client,
+            # Convert observation to string
+            if hasattr(observation, 'to_text'):
+                observation_str = observation.to_text()
+            elif hasattr(observation, 'text'):
+                observation_str = observation.text
+            else:
+                observation_str = str(observation)
+            
+            print(f"[RolloutExecutor] Initial observation: {observation_str[:200]}...")
+            
+            # 4. Create and run agent
+            print(f"[RolloutExecutor] Creating agent (type: {agent_type})...")
+            
+            if agent_type == "demo":
+                # Use simple demo agent (original agent_loop logic)
+                agent = DemoAgent(
+                    env=env,
+                    llm_client=llm_client,
+                    config={
+                        "model_name": request.model_name,
+                        "temperature": request.temperature,
+                        "max_tokens": request.max_tokens
+                    }
+                )
+            elif agent_type == "ctf":
+                # Use advanced CTFMix agent
+                agent = CTFAgent(
+                    env=env.adapter,  # Pass VulhubAdapter directly
+                    llm_client=llm_client,
+                    config={
+                        "model_name": request.model_name,
+                        "temperature": request.temperature,
+                        "max_tokens": request.max_tokens,
+                        "step_limit": request.max_steps,
+                        "config_file": request.metadata.get("agent_config_file")  # Optional custom config
+                    }
+                )
+            else:
+                raise ValueError(f"Unknown agent_type: {agent_type}")
+            
+            print(f"[RolloutExecutor] Starting {agent.get_name()}...")
+            trajectory = await agent.run(
                 initial_prompt=request.prompt,
-                observation=observation,
                 max_steps=request.max_steps,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens
             )
-            print(f"[RolloutExecutor] Agent loop completed: {len(trajectory)} steps")
+            print(f"[RolloutExecutor] Agent completed: {len(trajectory)} steps")
+            
+            # OLD CODE (commented out - kept for reference):
+            # trajectory = await agent_loop(
+            #     env=env,
+            #     llm_client=llm_client,
+            #     initial_prompt=request.prompt,
+            #     observation=observation,
+            #     max_steps=request.max_steps,
+            #     temperature=request.temperature,
+            #     max_tokens=request.max_tokens
+            # )
             
             # 5. Close environment
             if env:

@@ -1,16 +1,16 @@
 # Worker Orchestrator Dependencies
 
-# Web Framework
-fastapi==0.109.0
+# Web Framework (updated for vllm 0.17.0 compatibility)
+fastapi[standard]==0.115.0
 uvicorn[standard]==0.27.0
-pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic==2.12.0
+pydantic-settings==2.5.2  # Updated for mcp compatibility
 
 # Redis
 redis==5.0.1
 
-# HTTP Client
-aiohttp==3.9.1
+# HTTP Client (updated for vllm 0.17.0 compatibility)
+aiohttp==3.13.3
 
 # Configuration
 pyyaml==6.0.1
@@ -18,14 +18,20 @@ python-dotenv==1.0.0
 omegaconf==2.3.0  # Required for ez_generator (SkyRL compatibility)
 
 # Docker (for worker_unit)
-docker==7.0.0
+docker==7.1.0
 
 # Data processing (for VulhubReward BLEU-based reward computation)
 pandas==2.2.0
-pyarrow==15.0.0  # Required for parquet support
+pyarrow==15.0.0
+numpy>=1.26.0,<2.0  # Compatible with pandas 2.2.0, avoid cupy-cuda12x conflict
 
 # Utilities
-python-multipart==0.0.6
+python-multipart==0.0.9  # Updated for fastapi[standard]>=0.115.0
+
+# CTFMix Agent Dependencies (for advanced CTF agent)
+simple-parsing==0.1.5  # Config serialization and parsing
+tenacity==8.2.3        # Retry logic with exponential backoff
+openai==2.20.0 # OpenAI API (for LLM queries, compatible with vllm 0.17.0)
 
 # vLLM for ez_llm_server (optional - install separately if needed)
 # vllm>=0.6.0  # Uncomment to install with main requirements

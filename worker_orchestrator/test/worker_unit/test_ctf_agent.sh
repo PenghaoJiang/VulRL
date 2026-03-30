@@ -1,10 +1,10 @@
 #!/bin/bash
-# Test Worker Unit Rollout Executor
+# Test CTF Agent (Advanced Agent)
 
 set -e
 
 echo "========================================================================"
-echo "Testing Demo Agent (Simple Bash Command Agent)"
+echo "Testing CTF Agent (Advanced Agent with Thought/Action Parsing)"
 echo "========================================================================"
 echo ""
 
@@ -26,7 +26,6 @@ fi
 echo "Activating virtual environment..."
 source venv/bin/activate
 
-
 # Check if LLM server is running
 echo "Checking LLM server..."
 if ! curl -s http://127.0.0.1:8001/health > /dev/null 2>&1; then
@@ -40,10 +39,14 @@ echo "✓ LLM server is running"
 echo ""
 
 # Run test
-echo "Running demo agent test..."
+echo "Running CTF agent test..."
 echo ""
 
-python test/worker_unit/test_rollout.py
+# Set dummy OpenAI API key for local vLLM server
+# (CTFMix requires this during initialization, but actual LLM calls go through LLMAdapter)
+export OPENAI_API_KEY="dummy-key-for-local-vllm"
+
+python test/worker_unit/test_ctf_agent.py
 
 EXIT_CODE=$?
 

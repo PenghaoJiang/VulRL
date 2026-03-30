@@ -16,6 +16,7 @@ class ActionType(str, Enum):
     """Action type enumeration"""
     BASH = "bash"
     HTTP_REQUEST = "http_request"
+    PYTHON = "python"  # Execute Python code
 
 
 # ============================================================================
