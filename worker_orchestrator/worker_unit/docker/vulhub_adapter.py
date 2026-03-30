@@ -198,8 +198,6 @@ Provide visual evidence of successful exploitation.
         else:
             output = f"Unknown action type: {action.action_type}"
 
-        self.agent = SomeAgent()
-
         # Intermediate step reward=0.0
         reward = 0.0
 
