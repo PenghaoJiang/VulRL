@@ -64,8 +64,7 @@ class RolloutExecutor:
                 "task_type": "vulhub",
                 "task_id": request.cve_id,
                 "vulhub_path": request.vulhub_path,
-                # "max_steps": request.max_steps,
-                "max_steps": 30,
+                "max_steps": request.max_steps,
                 "backend_config": {
                     "vulhub_path": request.vulhub_path,
                     "vulhub_base_path": "/data1/jph/vulhub"
