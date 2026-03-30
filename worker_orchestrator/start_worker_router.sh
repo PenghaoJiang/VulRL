@@ -22,6 +22,36 @@ fi
 # Activate virtual environment
 echo "Activating virtual environment..."
 source venv/bin/activate
+echo "✓ Virtual environment activated"
+echo ""
+
+# Cleanup before starting
+echo "Cleanup (Redis + Worker Units)..."
+
+# Stop all running worker units
+echo "  - Stopping all worker units..."
+WORKER_PIDS=$(ps aux | grep "worker_unit/main.py" | grep -v grep | awk '{print $2}')
+if [ -n "$WORKER_PIDS" ]; then
+    echo "$WORKER_PIDS" | xargs kill -9 2>/dev/null || true
+    echo "    ✓ Stopped $(echo "$WORKER_PIDS" | wc -l) worker(s)"
+else
+    echo "    ℹ No workers running"
+fi
+
+# Empty Redis database (if Redis is running)
+echo "  - Flushing Redis database..."
+if redis-cli ping > /dev/null 2>&1; then
+    redis-cli FLUSHALL > /dev/null 2>&1
+    echo "    ✓ Redis database cleared"
+else
+    echo "    ℹ Redis not running yet, will start fresh"
+fi
+
+# Clean up old worker logs
+echo "  - Cleaning old worker logs..."
+rm -f logs/worker_auto_*.log 2>/dev/null || true
+echo "    ✓ Old logs removed"
+echo ""
 
 # Verify uvicorn is installed
 if ! python -m uvicorn --version &> /dev/null; then
@@ -32,22 +62,21 @@ if ! python -m uvicorn --version &> /dev/null; then
     exit 1
 fi
 
-# Check if Redis is already running
-if redis-cli ping > /dev/null 2>&1; then
-    echo "✓ Redis is already running"
-else
-    echo "Starting Redis..."
+# Start Redis
+echo "Starting Redis..."
+if ! redis-cli ping > /dev/null 2>&1; then
     redis-server --daemonize yes
     sleep 2
-    
-    # Verify Redis started
-    if redis-cli ping > /dev/null 2>&1; then
-        echo "✓ Redis started successfully"
-    else
-        echo "✗ Failed to start Redis"
-        exit 1
-    fi
 fi
+
+# Verify Redis is running
+if redis-cli ping > /dev/null 2>&1; then
+    echo "✓ Redis is running"
+else
+    echo "✗ Failed to start Redis"
+    exit 1
+fi
+echo ""
 
 # Start FastAPI with uvicorn
 echo "✓ Starting Worker Router FastAPI server..."
