@@ -34,7 +34,7 @@ class RolloutExecutor:
     async def execute(
         self,
         request: RolloutRequest,
-        agent_type: str = "demo"
+        agent_type: str = "ctf"
     ) -> RolloutResult:
         """
         Execute a complete rollout with specified agent.
@@ -43,7 +43,7 @@ class RolloutExecutor:
             request: RolloutRequest with CVE, prompt, LLM config
             agent_type: Type of agent to use ("demo" or "ctf")
                 - "demo": Simple bash command agent (original agent_loop logic)
-                - "ctf": Advanced CTFMix agent with thought/action parsing
+                - "ctf": Advanced CTFMix agent with thought/action parsing (default)
             
         Returns:
             RolloutResult with trajectory and rewards

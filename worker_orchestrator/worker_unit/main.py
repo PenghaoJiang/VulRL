@@ -67,8 +67,8 @@ class WorkerUnit:
             # Convert to RolloutRequest
             request = RolloutRequest(**request_dict)
             
-            # Extract agent_type from metadata (default to "demo")
-            agent_type = request.metadata.get("agent_type", "demo")
+            # Extract agent_type from metadata (default to "ctf")
+            agent_type = request.metadata.get("agent_type", "ctf")
             print(f"[Worker {self.worker_id}] Using agent type: {agent_type}")
             
             # Execute rollout with specified agent
