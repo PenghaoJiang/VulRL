@@ -72,6 +72,9 @@ CRITICAL_PACKAGES=(
     "pandas:pandas"
     "pyarrow:pyarrow"
     "pydantic:pydantic"
+    "simple_parsing:simple-parsing"
+    "tenacity:tenacity"
+    "openai:openai"
 )
 
 MISSING_PACKAGES=()

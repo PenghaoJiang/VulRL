@@ -1,0 +1,130 @@
+================================================================================
+HOW TO TEST THE NEW AGENT FRAMEWORK
+================================================================================
+
+Files in this directory:
+  - test_rollout.py       (Demo agent test - Python)
+  - test_rollout.sh       (Demo agent test - Bash wrapper)
+  - test_ctf_agent.py     (CTF agent test - Python)
+  - test_ctf_agent.sh     (CTF agent test - Bash wrapper)
+
+================================================================================
+TESTING IN WSL (Recommended)
+================================================================================
+
+Terminal 1 - Start LLM Server:
+-------------------------------
+cd /mnt/e/git_fork_folder/VulRL/worker_orchestrator
+bash start_llm_server.sh
+# Wait for "Uvicorn running on http://0.0.0.0:8001"
+# LEAVE THIS RUNNING
+
+
+Terminal 2 - Run Tests:
+-----------------------
+cd /mnt/e/git_fork_folder/VulRL/worker_orchestrator
+
+# One-time: Install dependencies
+bash setup.sh
+
+# Test 1: Demo Agent (simple, fast)
+bash test/worker_unit/test_rollout.sh
+
+# Test 2: CTF Agent (advanced, shows thoughts)
+bash test/worker_unit/test_ctf_agent.sh
+
+
+================================================================================
+TESTING IN POWERSHELL (Alternative)
+================================================================================
+
+Terminal 1 - Start LLM Server (use WSL):
+-----------------------------------------
+wsl bash start_llm_server.sh
+# LEAVE THIS RUNNING
+
+
+Terminal 2 - Run Tests (PowerShell):
+-------------------------------------
+cd E:\git_fork_folder\VulRL\worker_orchestrator
+.\venv\Scripts\Activate.ps1
+
+# Test 1: Demo Agent
+python test/worker_unit/test_rollout.py
+
+# Test 2: CTF Agent
+python test/worker_unit/test_ctf_agent.py
+
+
+================================================================================
+WHAT TO EXPECT
+================================================================================
+
+Demo Agent Output:
+------------------
+[DemoAgent] Step 1/5
+[DemoAgent] Action: echo '#!/bin/bash' > /tmp/workspace/hello.sh
+[DemoAgent] Observation: Exit: 0
+[DemoAgent] Reward: 0.0, Done: False
+...
+✓ Rollout completed successfully!
+
+
+CTF Agent Output:
+-----------------
+[CTFAgent] Starting CTFMix agent run
+
+[CTF Agent Thought]:
+I need to create a hello world script at /tmp/workspace/. Let me first
+check if the directory exists...
+
+[CTF Agent Action]:
+```bash
+mkdir -p /tmp/workspace && echo '#!/bin/bash\necho "Hello"' > /tmp/workspace/hello.sh
+```
+
+[Observation]:
+Exit: 0
+...
+✓ Rollout completed successfully!
+
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Error: "LLM server not running"
+→ Start it: bash start_llm_server.sh
+
+Error: "ModuleNotFoundError: No module named 'simple_parsing'"
+→ Run: bash setup.sh
+
+Error: "Docker daemon not accessible"
+→ Start Docker Desktop or: sudo systemctl start docker
+
+Error: Docker SDK proxy issues in WSL
+→ Run: unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+✓ Demo agent completes without errors
+✓ CTF agent completes without errors  
+✓ CTF agent shows "Thought:" in output (proves it's working differently)
+✓ Both produce valid trajectories
+
+
+================================================================================
+QUICK TEST (2 commands)
+================================================================================
+
+# Terminal 1
+bash start_llm_server.sh
+
+# Terminal 2 (after server starts)
+bash test/worker_unit/test_rollout.sh       # Demo
+bash test/worker_unit/test_ctf_agent.sh     # CTF
+
+Done!

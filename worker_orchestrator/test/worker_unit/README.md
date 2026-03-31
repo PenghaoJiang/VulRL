@@ -1,160 +1,131 @@
-# Worker Unit Tests
+# Worker Unit Agent Tests
 
-Test suite for the VulRL Worker Unit, which executes vulnerability exploitation rollouts using Docker environments and LLM-based agents.
+Simple tests for Demo and CTF agents.
 
-## Test Files
+## Files
 
-### `test_rollout.py`
-Standalone Python test for the rollout executor. Tests the complete flow:
-1. Initialize LLM client
-2. Setup Docker environment (Vulhub)
-3. Run agent loop (LLM + environment interaction)
-4. Collect trajectory and rewards
-5. Clean up environment
+```
+test/worker_unit/
+├── test_rollout.py        # Python test for Demo agent
+├── test_rollout.sh        # Bash wrapper for Demo agent
+├── test_ctf_agent.py      # Python test for CTF agent
+└── test_ctf_agent.sh      # Bash wrapper for CTF agent
+```
 
-### `test_rollout.sh`
-Bash script to run the test with proper setup:
-- Activates Python virtual environment
-- Checks if LLM server is running
-- Runs the Python test script
+## Quick Start
 
-## Test Case
+### 1. Install Dependencies (One-time)
 
-**CVE**: apache-cxf/CVE-2024-28752  
-**Vulhub Path**: `/mnt/e/git_fork_folder/VulRL/benchmark/vulhub/apache-cxf/CVE-2024-28752`  
-**Prompt**: "write a hello world script at /tmp/workspace/"  
-**Max Steps**: 5  
-**LLM**: http://127.0.0.1:8001 (qwen2.5-1.5b)
-
-## Prerequisites
-
-1. **Virtual Environment**: Set up the worker_orchestrator venv
-   ```bash
-   cd /mnt/e/git_fork_folder/VulRL/worker_orchestrator
-   bash setup.sh
-   ```
-
-2. **LLM Server**: Start the vLLM server
-   ```bash
-   cd /mnt/e/git_fork_folder/VulRL/worker_orchestrator
-   bash start_llm_server.sh
-   ```
-
-3. **Docker**: Ensure Docker is running and accessible
-
-4. **Vulhub Benchmark**: Ensure the Vulhub case exists at:
-   `/mnt/e/git_fork_folder/VulRL/benchmark/vulhub/apache-cxf/CVE-2024-28752`
-
-## Running Tests
-
-### Quick Test (Bash Script)
 ```bash
-cd /mnt/e/git_fork_folder/VulRL/worker_orchestrator
+cd worker_orchestrator
+bash setup.sh
+```
+
+### 2. Start LLM Server (Terminal 1)
+
+```bash
+cd worker_orchestrator
+bash start_llm_server.sh
+# Wait for "Uvicorn running on http://0.0.0.0:8001"
+# Leave running
+```
+
+### 3. Test Demo Agent (Terminal 2)
+
+**In WSL:**
+```bash
+cd worker_orchestrator
 bash test/worker_unit/test_rollout.sh
 ```
 
-### Manual Test (Python)
+**Or in PowerShell:**
+```powershell
+cd E:\git_fork_folder\VulRL\worker_orchestrator
+.\venv\Scripts\Activate.ps1
+python test/worker_unit/test_rollout.py
+```
+
+### 4. Test CTF Agent (Terminal 2)
+
+**In WSL:**
 ```bash
-cd /mnt/e/git_fork_folder/VulRL/worker_orchestrator
-source venv/bin/activate
-python -m test.worker_unit.test_rollout
+cd worker_orchestrator
+bash test/worker_unit/test_ctf_agent.sh
 ```
 
-## Expected Output
-
+**Or in PowerShell:**
+```powershell
+cd E:\git_fork_folder\VulRL\worker_orchestrator
+.\venv\Scripts\Activate.ps1
+python test/worker_unit/test_ctf_agent.py
 ```
-======================================================================
-Testing Worker Unit Rollout Executor
-======================================================================
 
-✓ LLM server is running
+## Expected Behavior
 
-Running worker unit test...
+### Demo Agent
+- Simple, direct bash commands
+- No explanations
+- Fast execution (~1-2 min)
+- Output shows: Action → Observation → Reward
 
-======================================================================
-Worker Unit Rollout Test
-======================================================================
-
-Test Configuration:
-  CVE ID: CVE-2024-28752
-  Vulhub Path: apache-cxf/CVE-2024-28752
-  Prompt: write a hello world script at /tmp/workspace/
-  Max Steps: 5
-  LLM: http://127.0.0.1:8001
-
-Executing rollout...
-
-======================================================================
-Starting Rollout: CVE-2024-28752_1234567890
-======================================================================
-...
-[Agent loop interaction]
-...
-======================================================================
-Rollout Completed Successfully
-======================================================================
-Duration: 45.23s
-Steps: 3
-Reward: 0.0
-Success: False
-
-✓ Rollout completed successfully!
-✓ Test completed!
-```
+### CTF Agent
+- Explains reasoning (Thought)
+- Formatted actions in code blocks
+- Slower execution (~2-5 min)
+- Output shows: Thought → Action → Observation → Reward
 
 ## Troubleshooting
 
-### "LLM server not running"
-Start the LLM server:
+### Error: Docker SDK proxy issues in WSL
+
 ```bash
+# Unset proxies before running:
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+bash test/worker_unit/test_rollout.sh
+```
+
+### Error: LLM server not running
+
+```bash
+# Check server status:
+curl http://127.0.0.1:8001/health
+
+# If not running, start it:
 bash start_llm_server.sh
 ```
 
-### "Vulhub path not found"
-Check the path exists:
+### Error: ModuleNotFoundError
+
 ```bash
-ls /mnt/e/git_fork_folder/VulRL/benchmark/vulhub/apache-cxf/CVE-2024-28752
+# Install dependencies:
+bash setup.sh
 ```
 
-### "Docker connection error"
-Ensure Docker is running:
+## Comparing Agents
+
+To compare both agents, run them sequentially:
+
 ```bash
-docker ps
+# Demo agent
+bash test/worker_unit/test_rollout.sh > demo_result.txt
+
+# CTF agent  
+bash test/worker_unit/test_ctf_agent.sh > ctf_result.txt
+
+# Compare
+diff demo_result.txt ctf_result.txt
 ```
 
-### "Failed to start Vulhub"
-Check Docker Compose:
-```bash
-cd /mnt/e/git_fork_folder/VulRL/benchmark/vulhub/apache-cxf/CVE-2024-28752
-docker compose ps
-```
+Look for differences in:
+- Number of steps taken
+- Quality of reasoning (CTF shows thoughts)
+- Success rates
+- Execution times
 
-## Components Tested
+## Next Steps
 
-1. **RolloutExecutor**: Main orchestrator for complete rollout
-2. **SecurityEnv**: Gymnasium-compliant environment wrapper
-3. **VulhubAdapter**: Docker Compose + attacker container management
-4. **Agent Loop**: LLM-environment interaction (simplified from SkyRL)
-5. **InferenceEngineClientWrapper**: LLM client (OpenAI-compatible)
-6. **RewardCalculator**: Reward computation (currently returns 0.0)
-
-## VulhubAdapterTest
-
-**Important**: This test uses `VulhubAdapterTest` instead of the original `VulhubAdapter`.
-
-`VulhubAdapterTest` is a subprocess-based adapter that:
-- Uses Docker CLI commands (`docker exec`, `docker inspect`, etc.)
-- Avoids Python Docker SDK proxy issues in WSL2
-- Has identical interface to the original adapter
-- Automatically patched in `test_rollout.py`
-
-See `worker_unit/docker/ADAPTER_TEST_README.md` for full details.
-
-## TODO
-
-- [ ] Implement actual reward calculation
-- [ ] Add tests for error handling
-- [ ] Add tests for timeout scenarios
-- [ ] Add tests with different Vulhub cases
-- [ ] Add integration test with Worker Router + Redis
-- [ ] Consider merging VulhubAdapterTest into main adapter with feature flag
+1. Run both tests to verify they work
+2. Try with different CVEs
+3. Adjust max_steps, temperature as needed
+4. Monitor which agent works better for which CVE types
+5. Integrate into your workflow
