@@ -89,8 +89,9 @@ class VulhubRuntimeAdapter:
         
         try:
             # Execute command using Docker SDK
+            # Use bash -l to load .bashrc (where custom commands are sourced)
             exec_result = self.container_obj.exec_run(
-                ["bash", "-c", input],
+                ["bash", "-l", "-c", input],
                 demux=True
             )
             
@@ -225,10 +226,15 @@ class VulhubRuntimeAdapter:
             self._copy_file_to_container(contents, source_path)
             
             if command["type"] == "source_file":
-                # Source the file
+                # Source the file and add to .bashrc for persistence across exec_run calls
                 self.communicate_with_handling(
                     f"source {shlex.quote(source_path)}",
                     f"Failed to source {source_name}"
+                )
+                # Add to .bashrc so it's sourced in every bash session
+                self.communicate_with_handling(
+                    f'echo "source {shlex.quote(source_path)}" >> /root/.bashrc',
+                    f"Failed to add {source_name} to .bashrc"
                 )
             elif command["type"] in {"script", "utility"}:
                 exec_path = f"/root/commands/{name}"
