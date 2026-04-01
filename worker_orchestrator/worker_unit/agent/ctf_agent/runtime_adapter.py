@@ -14,12 +14,23 @@ This adapter wraps VulhubAdapter to provide that interface.
 """
 
 import json
+import os
 import re
 import shlex
 import subprocess
+import time
 from typing import Tuple, Dict, Any, Optional, List
 from pathlib import Path
 from .ctfmix.types import AgentInfo
+from .ctfmix.runtime_utils import (
+    PROCESS_DONE_MARKER_START,
+    PROCESS_DONE_MARKER_END,
+    PROCESS_DONE_REGEX,
+    read_with_timeout_experimental
+)
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 class VulhubRuntimeAdapter:
@@ -57,6 +68,20 @@ class VulhubRuntimeAdapter:
         self.task_id = task_config.get("task_id", "unknown")
         self.service_url = vulhub_adapter.service_url
         self.max_steps = task_config.get("max_steps", 30)
+        
+        # Create persistent bash session (like CTFMixRuntime)
+        # This maintains state across commands (functions, env vars, cwd, etc.)
+        logger.info(f"Creating persistent bash session for container {self.container_name}")
+        self.container_process = subprocess.Popen(
+            ["docker", "exec", "-i", self.container_name, "/bin/bash", "-l"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=False,
+            bufsize=0,
+        )
+        time.sleep(0.1)  # Let bash initialize
+        logger.info("Persistent bash session established")
     
     def communicate(
         self,
@@ -66,62 +91,84 @@ class VulhubRuntimeAdapter:
         set_last_action: bool = False
     ) -> str:
         """
-        Execute command in container and return output.
+        Execute command in persistent bash session and return output.
         
-        This mimics CTFMixRuntime.communicate() which uses bash stdin/stdout.
-        For VulhubAdapter, we use docker exec.
+        Uses a persistent subprocess pipe (like CTFMixRuntime) instead of exec_run.
+        This maintains state across commands: functions, env vars, cwd, etc.
         
         Args:
-            input: Bash command to execute
+            input: Bash command to execute (can be function definitions or commands)
             timeout_duration: Command timeout
-            no_output_timeout_duration: Timeout for no output (unused in our impl)
+            no_output_timeout_duration: Timeout for no output
             set_last_action: Whether to set LAST_ACTION env var
             
         Returns:
             Command output as string
         """
+        if no_output_timeout_duration is None:
+            no_output_timeout_duration = timeout_duration
+            
         if input.strip() == "exit":
             self.returncode = 0
             return ""
         
-        if not self.container_obj:
-            raise RuntimeError("Container not initialized")
+        if not self.container_process:
+            raise RuntimeError("Container process not initialized")
         
         try:
-            # Execute command using Docker SDK
-            # Use bash -l to load .bashrc (where custom commands are sourced)
-            exec_result = self.container_obj.exec_run(
-                ["bash", "-l", "-c", input],
-                demux=True
+            # Add marker to detect when command finishes (like CTFMixRuntime)
+            command_suffix = f'EXITSTATUS="$?"; sleep 0.01; echo {PROCESS_DONE_MARKER_START}$EXITSTATUS{PROCESS_DONE_MARKER_END}\n'
+            cmd = input if input.endswith("\n") else input + "\n"
+            payload = (cmd + command_suffix).encode()
+            
+            # Write to stdin
+            os.write(self.container_process.stdin.fileno(), payload)
+            time.sleep(0.03)
+            self.container_process.stdin.flush()
+            
+            # Read output until marker appears
+            buffer, exit_code = read_with_timeout_experimental(
+                self.container_process,
+                timeout_duration=timeout_duration,
+                no_output_timeout_duration=no_output_timeout_duration,
             )
             
-            stdout = exec_result.output[0].decode() if exec_result.output[0] else ""
-            stderr = exec_result.output[1].decode() if exec_result.output[1] else ""
-            self.returncode = exec_result.exit_code
-            
-            # Combine output (CTFMix expects combined stdout/stderr)
-            output = stdout
-            if stderr:
-                output += stderr
-            
-            self.communicate_output = output
+            self.returncode = int(exit_code) if str(exit_code).isdigit() else 998
+            self.communicate_output = buffer
             
             # Set LAST_ACTION if requested (CTFMix feature)
             if set_last_action:
                 last_action_string = shlex.quote(input.strip())
-                try:
-                    self.container_obj.exec_run(
-                        ["bash", "-c", f"export LAST_ACTION={last_action_string}"],
-                        demux=False
-                    )
-                except:
-                    pass  # Non-critical
+                # This will persist in the same session
+                self._communicate_simple(f"export LAST_ACTION={last_action_string}")
             
-            return output
+            return buffer
             
         except Exception as e:
             self.returncode = 1
-            return f"Error: {str(e)}"
+            error_msg = f"Error: {str(e)}"
+            self.communicate_output = error_msg
+            return error_msg
+    
+    def _communicate_simple(self, input: str, timeout: int = 5) -> str:
+        """
+        Simple communicate without markers (for internal use).
+        
+        Args:
+            input: Command to execute
+            timeout: Timeout in seconds
+            
+        Returns:
+            Output string
+        """
+        try:
+            cmd = input if input.endswith("\n") else input + "\n"
+            os.write(self.container_process.stdin.fileno(), cmd.encode())
+            self.container_process.stdin.flush()
+            time.sleep(0.1)
+            return ""
+        except:
+            return ""
     
     def communicate_with_handling(self, input: str, error_msg: str, timeout_duration: int = 25) -> str:
         """
@@ -226,15 +273,10 @@ class VulhubRuntimeAdapter:
             self._copy_file_to_container(contents, source_path)
             
             if command["type"] == "source_file":
-                # Source the file and add to .bashrc for persistence across exec_run calls
+                # Source the file (persistent session means it stays loaded!)
                 self.communicate_with_handling(
                     f"source {shlex.quote(source_path)}",
                     f"Failed to source {source_name}"
-                )
-                # Add to .bashrc so it's sourced in every bash session
-                self.communicate_with_handling(
-                    f'echo "source {shlex.quote(source_path)}" >> /root/.bashrc',
-                    f"Failed to add {source_name} to .bashrc"
                 )
             elif command["type"] in {"script", "utility"}:
                 exec_path = f"/root/commands/{name}"
@@ -339,6 +381,15 @@ You have {self.max_steps} steps to complete this task.
         return []  # Not used by Agent
     
     def close(self) -> None:
-        """Close runtime (cleanup)"""
+        """Close runtime and cleanup persistent bash session."""
+        if hasattr(self, 'container_process') and self.container_process:
+            try:
+                logger.info("Terminating persistent bash session")
+                self.container_process.terminate()
+                self.container_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.warning("Bash session did not terminate, killing it")
+                self.container_process.kill()
+            except Exception as e:
+                logger.warning(f"Error closing bash session: {e}")
         # VulhubAdapter cleanup is handled by its teardown()
-        pass
