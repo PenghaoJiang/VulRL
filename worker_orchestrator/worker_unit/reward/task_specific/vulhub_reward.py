@@ -53,7 +53,7 @@ class VulhubReward:
         if not dataset_path:
             candidates = [
                 Path.home() / "data" / "cve_vulhub" / "train.parquet",
-                Path("/data1/jph/VulRL/data/cve_vulhub/train.parquet"),
+                Path("/data1/jph/VulRL/dataset/cve_vulhub/train_v4.parquet"),
             ]
             for candidate in candidates:
                 if candidate.exists():
@@ -66,12 +66,26 @@ class VulhubReward:
 
         try:
             import pandas as pd
+            import json
             df = pd.read_parquet(dataset_path)
             for _, row in df.iterrows():
                 # Build lookup by both vulhub_path and cve_id
-                poc = row.get('poc_script', '')
+                # Try multiple column structures for compatibility
+                poc = row.get('poc_script', '')  # Old format: direct column
+                if not poc:
+                    # New format: nested in poc_info (may be dict or JSON string)
+                    poc_info = row.get('poc_info', {})
+                    if isinstance(poc_info, str):
+                        try:
+                            poc_info = json.loads(poc_info)
+                        except json.JSONDecodeError:
+                            pass
+                    if isinstance(poc_info, dict):
+                        poc = poc_info.get('poc_script', '')
+                
                 if not poc:
                     continue
+                    
                 vulhub_path = row.get('vulhub_path', '')
                 cve_id = row.get('cve_id', '')
                 if vulhub_path:
