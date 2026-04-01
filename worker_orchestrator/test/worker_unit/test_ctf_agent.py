@@ -4,13 +4,14 @@ Test CTF Agent (Advanced Agent)
 Test case:
 - Agent: CTF (advanced agent with thought/action parsing)
 - CVE: apache-cxf/CVE-2024-28752
-- Prompt: "write a hello world script at /tmp/workspace/"
+- Prompt: Penetration testing focused (using default_vul.yaml config)
 - LLM: http://127.0.0.1:8001
 
-Uses regular VulhubAdapter with Docker SDK.
+Uses regular VulhubAdapter with Docker SDK and default_vul.yaml config for penetration testing.
 """
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -34,6 +35,7 @@ async def test_ctf_agent():
         cve_id="CVE-2024-28752-ctf",
         vulhub_path="apache-cxf/CVE-2024-28752",
         prompt="write a hello world script at /tmp/workspace/",
+        # prompt="Identify and exploit vulnerabilities in the Apache CXF service. Document your findings.",
         max_steps=10,
         timeout=300,
         llm_endpoint="http://127.0.0.1:8001",
@@ -42,7 +44,9 @@ async def test_ctf_agent():
         max_tokens=1024,
         metadata={
             "agent_type": "ctf",
-            "vulhub_base_path": "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub"
+            # "vulhub_base_path": "/data1/jph/VulRL/benchmark/vulhub",
+            "vulhub_base_path": "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub",
+            "agent_config_file": str(Path(__file__).parent.parent.parent / "worker_unit/agent/config/default_vul.yaml")
         }
     )
     
@@ -86,6 +90,24 @@ async def test_ctf_agent():
             
             if len(result.trajectory) > 5:
                 print(f"\n  ... and {len(result.trajectory) - 5} more steps")
+        
+        # Print full result as dict
+        print("\n" + "=" * 70)
+        print("Full Rollout Result (dict format)")
+        print("=" * 70)
+        result_dict = result.model_dump()
+        # Truncate long trajectory items for readability
+        if result_dict.get('trajectory'):
+            for step in result_dict['trajectory']:
+                for key in ['action', 'observation', 'thought']:
+                    if key in step.get('metadata', {}) and len(step['metadata'][key]) > 200:
+                        step['metadata'][key] = step['metadata'][key][:200] + '...'
+                if 'observation' in step and len(step['observation']) > 200:
+                    step['observation'] = step['observation'][:200] + '...'
+                if 'action' in step and len(step['action']) > 200:
+                    step['action'] = step['action'][:200] + '...'
+        print(json.dumps(result_dict, indent=2, default=str))
+        print()
         
         if result.error:
             print(f"\n✗ Error: {result.error}")

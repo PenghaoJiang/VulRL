@@ -76,7 +76,8 @@ class CTFAgent(BaseAgent):
             llm_client=llm_client,
             model_name=self.model_name,
             temperature=self.temperature,
-            max_tokens=self.max_tokens
+            max_tokens=self.max_tokens,
+            step_limit=self.step_limit
         )
         
         # Create runtime adapter
@@ -186,6 +187,12 @@ class CTFAgent(BaseAgent):
                 done=True,
                 metadata={"error": str(e), "error_type": type(e).__name__}
             )]
+        finally:
+            # Cleanup persistent bash session
+            try:
+                self.runtime_adapter.close()
+            except Exception as e:
+                print(f"[CTFAgent] Error closing runtime adapter: {e}")
     
     def parse_action(self, llm_output: str) -> str:
         """
