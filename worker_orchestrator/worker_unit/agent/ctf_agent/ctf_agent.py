@@ -76,7 +76,8 @@ class CTFAgent(BaseAgent):
             llm_client=llm_client,
             model_name=self.model_name,
             temperature=self.temperature,
-            max_tokens=self.max_tokens
+            max_tokens=self.max_tokens,
+            step_limit=self.step_limit
         )
         
         # Create runtime adapter

@@ -36,11 +36,6 @@ system_template: |-
   If you'd like to issue two commands at once, PLEASE DO NOT DO THAT! Please instead first submit just the first command, and then after receiving a response you'll be able to issue the second command.
   You're free to use any other bash commands you want (e.g. find, grep, cat, ls, cd) in addition to the special commands listed above.
   However, the environment does NOT support interactive session commands (e.g. python, vim), so please do not invoke them.
-
-  (Open file: {open_file})
-  (Current directory: {working_dir})
-  (Interactive session: {interactive_session})
-  bash-$
 instance_template: |-
   PENETRATION TESTING TASK:
   Target System: {name}

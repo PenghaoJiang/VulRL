@@ -31,7 +31,8 @@ class LLMAdapter:
         llm_client,
         model_name: str,
         temperature: float = 0.7,
-        max_tokens: int = 512
+        max_tokens: int = 512,
+        step_limit: int = 30
     ):
         """
         Initialize adapter.
@@ -41,6 +42,7 @@ class LLMAdapter:
             model_name: Model name string
             temperature: Sampling temperature
             max_tokens: Max tokens per generation
+            step_limit: Max steps per instance
         """
         self.llm_client = llm_client
         self.model_name = model_name
@@ -51,7 +53,7 @@ class LLMAdapter:
         self.args = ModelArguments(
             model_name=model_name,
             temperature=temperature,
-            per_instance_step_limit=0,  # No limit (handled by env)
+            per_instance_step_limit=step_limit,
             per_instance_cost_limit=0.0,  # No limit
             total_cost_limit=0.0  # No limit
         )
