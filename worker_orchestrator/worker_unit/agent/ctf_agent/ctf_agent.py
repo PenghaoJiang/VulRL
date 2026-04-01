@@ -186,6 +186,12 @@ class CTFAgent(BaseAgent):
                 done=True,
                 metadata={"error": str(e), "error_type": type(e).__name__}
             )]
+        finally:
+            # Cleanup persistent bash session
+            try:
+                self.runtime_adapter.close()
+            except Exception as e:
+                print(f"[CTFAgent] Error closing runtime adapter: {e}")
     
     def parse_action(self, llm_output: str) -> str:
         """

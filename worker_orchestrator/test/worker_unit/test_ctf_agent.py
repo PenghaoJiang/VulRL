@@ -4,10 +4,10 @@ Test CTF Agent (Advanced Agent)
 Test case:
 - Agent: CTF (advanced agent with thought/action parsing)
 - CVE: apache-cxf/CVE-2024-28752
-- Prompt: "write a hello world script at /tmp/workspace/"
+- Prompt: Penetration testing focused (using default_vul.yaml config)
 - LLM: http://127.0.0.1:8001
 
-Uses regular VulhubAdapter with Docker SDK.
+Uses regular VulhubAdapter with Docker SDK and default_vul.yaml config for penetration testing.
 """
 
 import asyncio
@@ -33,7 +33,7 @@ async def test_ctf_agent():
     request = RolloutRequest(
         cve_id="CVE-2024-28752-ctf",
         vulhub_path="apache-cxf/CVE-2024-28752",
-        prompt="write a hello world script at /tmp/workspace/",
+        prompt="Identify and exploit vulnerabilities in the Apache CXF service. Document your findings.",
         max_steps=10,
         timeout=300,
         llm_endpoint="http://127.0.0.1:8001",
@@ -42,7 +42,8 @@ async def test_ctf_agent():
         max_tokens=1024,
         metadata={
             "agent_type": "ctf",
-            "vulhub_base_path": "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub"
+            "vulhub_base_path": "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub",
+            "agent_config_file": str(Path(__file__).parent.parent.parent / "worker_unit/agent/config/default_vul.yaml")
         }
     )
     
