@@ -44,6 +44,7 @@ async def test_ctf_agent():
         max_tokens=1024,
         metadata={
             "agent_type": "ctf",
+            # "vulhub_base_path": "/data1/jph/VulRL/benchmark/vulhub",
             "vulhub_base_path": "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub",
             "agent_config_file": str(Path(__file__).parent.parent.parent / "worker_unit/agent/config/default_vul.yaml")
         }
