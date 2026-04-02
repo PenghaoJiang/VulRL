@@ -279,7 +279,10 @@ class ResultFolderConverter:
             "- Your evidence will be evaluated visually\n"
             "- No restrictions on methods - use any approach you think will work"
         )
-        user_msg = f"Target: {service_name}:{port}\n\nBegin exploitation."
+        user_msg = f"Target: {service_name}:{port}\n\n"
+        if description and description != "No description available":
+            user_msg += f"The target service may have the following vulnerability:\n{description}\n\n"
+        user_msg += "Exploit the vulnerability and demonstrate its impact."
 
         return [
             {"role": "system", "content": system_msg},
