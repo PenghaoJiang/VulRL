@@ -6,20 +6,37 @@ Updated to support pluggable agents (DemoAgent, CTFAgent).
 """
 
 import time
-from typing import Dict, Any, Optional
+from pathlib import Path
+from typing import Dict, Any, List, Optional
 
 # Import from worker_orchestrator modules only
-from worker_router.models import RolloutRequest, RolloutResult, TrajectoryStep
-from ez_llm_server.client import InferenceEngineClientWrapper
+from worker_router.models import RolloutRequest, RolloutResult
+# from ez_llm_server.client import InferenceEngineClientWrapper  # uncomment with LLM block below
 
 # Import from worker_unit modules (copied from vulrl_inside_skyrl)
 from worker_unit.env import SecurityEnv
 from worker_unit.reward import RewardCalculator
 # from worker_unit.agent_loop import agent_loop  # OLD: Commented out, using agents instead
 
-# Import agents
-from worker_unit.agent.demo_agent import DemoAgent
-from worker_unit.agent.ctf_agent import CTFAgent
+# Import agents (restore when uncommenting agent block below)
+# from worker_unit.agent.demo_agent import DemoAgent
+# from worker_unit.agent.ctf_agent import CTFAgent
+
+
+def _trajectory_to_dicts(trajectory) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for step in trajectory:
+        if hasattr(step, "model_dump"):
+            rows.append(step.model_dump())
+        elif hasattr(step, "dict"):
+            rows.append(step.dict())
+        else:
+            rows.append(dict(step))
+    return rows
+
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DEFAULT_CVEBENCH_ROOT = _REPO_ROOT / "benchmark" / "cve-bench"
 
 
 class RolloutExecutor:
@@ -54,48 +71,62 @@ class RolloutExecutor:
         print(f"\n{'='*70}")
         print(f"Starting Rollout: {task_id}")
         print(f"{'='*70}")
+        task_type = (request.metadata.get("task_type") or "vulhub").lower()
         print(f"CVE: {request.cve_id}")
+        print(f"Task type: {task_type}")
         print(f"Vulhub Path: {request.vulhub_path}")
         print(f"Prompt: {request.prompt}")
         print(f"Max Steps: {request.max_steps}")
         print()
         
         env = None
-        
+
         try:
-            # 1. Initialize LLM client
-            print("[RolloutExecutor] Initializing LLM client...")
-            llm_client = InferenceEngineClientWrapper(
-                endpoint=request.llm_endpoint,
-                model_name=request.model_name
-            )
-            print(f"[RolloutExecutor] LLM client ready: {request.llm_endpoint}")
-            
+            # 1. LLM client (commented out — skip agent/LLM; go to reward after env reset)
+            llm_client = None
+            # print("[RolloutExecutor] Initializing LLM client...")
+            # llm_client = InferenceEngineClientWrapper(
+            #     endpoint=request.llm_endpoint,
+            #     model_name=request.model_name,
+            # )
+            # print(f"[RolloutExecutor] LLM client ready: {request.llm_endpoint}")
+
             # 2. Initialize environment
             print("[RolloutExecutor] Initializing environment...")
-            
-            # Get vulhub_base_path from metadata or use default
-            vulhub_base_path = request.metadata.get(
-                "vulhub_base_path",
-                "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub" 
-                ## on phj machine: "/data1/jph/vulhub"
-            )
-            
-            env_config = {
-                "task_type": "vulhub",
-                "task_id": request.cve_id,
-                "vulhub_path": request.vulhub_path,
-                "max_steps": request.max_steps,
-                "backend_config": {
+
+            if task_type == "cvebench":
+                cvebench_root = request.metadata.get("cvebench_root") or str(_DEFAULT_CVEBENCH_ROOT)
+                env_config = {
+                    "task_type": "cvebench",
+                    "task_id": request.cve_id,
+                    "cve_id": request.cve_id,
+                    "cvebench_root": cvebench_root,
+                    "cvebench_version": request.metadata.get("cvebench_version", "critical"),
+                    "cvebench_tag": request.metadata.get("cvebench_tag"),
+                    "max_steps": request.max_steps,
+                    "timeout": request.metadata.get("timeout", 30),
+                    "backend_config": {"cvebench_root": cvebench_root},
+                }
+            else:
+                vulhub_base_path = request.metadata.get(
+                    "vulhub_base_path",
+                    "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub",
+                )
+                env_config = {
+                    "task_type": "vulhub",
+                    "task_id": request.cve_id,
                     "vulhub_path": request.vulhub_path,
-                    "vulhub_base_path": vulhub_base_path
-                },
-                "target_host": "target",
-                "target_port": 80,
-                "target_protocol": "http",
-                "timeout": 30
-            }
-            
+                    "max_steps": request.max_steps,
+                    "backend_config": {
+                        "vulhub_path": request.vulhub_path,
+                        "vulhub_base_path": vulhub_base_path,
+                    },
+                    "target_host": "target",
+                    "target_port": 80,
+                    "target_protocol": "http",
+                    "timeout": 30,
+                }
+
             env = SecurityEnv(config=env_config)
             print("[RolloutExecutor] Environment ready")
             
@@ -113,81 +144,89 @@ class RolloutExecutor:
             
             print(f"[RolloutExecutor] Initial observation: {observation_str[:200]}...")
             
-            # 4. Create and run agent
-            print(f"[RolloutExecutor] Creating agent (type: {agent_type})...")
-            
-            if agent_type == "demo":
-                # Use simple demo agent (original agent_loop logic)
-                agent = DemoAgent(
-                    env=env,
-                    llm_client=llm_client,
-                    config={
-                        "model_name": request.model_name,
-                        "temperature": request.temperature,
-                        "max_tokens": request.max_tokens
-                    }
-                )
-            elif agent_type == "ctf":
-                # Use advanced CTFMix agent
-                agent = CTFAgent(
-                    env=env.adapter,  # Pass VulhubAdapter directly
-                    llm_client=llm_client,
-                    config={
-                        "model_name": request.model_name,
-                        "temperature": request.temperature,
-                        "max_tokens": request.max_tokens,
-                        "step_limit": request.max_steps,
-                        "config_file": request.metadata.get("agent_config_file")  # Optional custom config
-                    }
-                )
-            else:
-                raise ValueError(f"Unknown agent_type: {agent_type}")
-            
-            print(f"[RolloutExecutor] Starting {agent.get_name()}...")
-            trajectory = await agent.run(
-                initial_prompt=request.prompt,
-                max_steps=request.max_steps,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens
-            )
-            print(f"[RolloutExecutor] Agent completed: {len(trajectory)} steps")
-            
-            # OLD CODE (commented out - kept for reference):
-            # trajectory = await agent_loop(
-            #     env=env,
-            #     llm_client=llm_client,
+            # 4. Agent (commented out — no LLM/agent; empty trajectory, then reward)
+            agent = None
+            trajectory = []
+            # print(f"[RolloutExecutor] Creating agent (type: {agent_type})...")
+            # if agent_type == "demo":
+            #     agent = DemoAgent(
+            #         env=env,
+            #         llm_client=llm_client,
+            #         config={
+            #             "model_name": request.model_name,
+            #             "temperature": request.temperature,
+            #             "max_tokens": request.max_tokens,
+            #         },
+            #     )
+            # elif agent_type == "ctf":
+            #     agent = CTFAgent(
+            #         env=env.adapter,
+            #         llm_client=llm_client,
+            #         config={
+            #             "model_name": request.model_name,
+            #             "temperature": request.temperature,
+            #             "max_tokens": request.max_tokens,
+            #             "step_limit": request.max_steps,
+            #             "config_file": request.metadata.get("agent_config_file"),
+            #         },
+            #     )
+            # else:
+            #     raise ValueError(f"Unknown agent_type: {agent_type}")
+            # print(f"[RolloutExecutor] Starting {agent.get_name()}...")
+            # trajectory = await agent.run(
             #     initial_prompt=request.prompt,
-            #     observation=observation,
             #     max_steps=request.max_steps,
             #     temperature=request.temperature,
-            #     max_tokens=request.max_tokens
+            #     max_tokens=request.max_tokens,
             # )
-            
-            # 5. Close environment
-            if env:
-                env.close()
-                print("[RolloutExecutor] Environment closed")
-            
-            # 6. Compute final reward
+            # print(f"[RolloutExecutor] Agent completed: {len(trajectory)} steps")
+            print("[RolloutExecutor] Agent skipped; computing reward from empty trajectory")
+
+            traj_dicts = _trajectory_to_dicts(trajectory)
+
+            # 5–6. Reward, then teardown for cvebench (needs live /done); vulhub closes first (offline BLEU)
             print("[RolloutExecutor] Computing rewards...")
-            
-            # Initialize reward calculator with task-specific config
-            reward_config = {
-                'dataset_path': request.metadata.get('dataset_path', '')
-            }
-            reward_calculator = RewardCalculator(
-                task_type=request.metadata.get('task_type', 'vulhub'),
-                config=reward_config
-            )
-            
-            # Use vulhub_path or cve_id as task_id for reward lookup (not timestamped task_id)
-            reward_task_id = request.vulhub_path or request.cve_id
-            
-            total_reward = reward_calculator.compute_episode_reward(
-                trajectory=[step.dict() for step in trajectory],
-                task_id=reward_task_id
-            )
-            print(f"[RolloutExecutor] Total reward: {total_reward}")
+            if task_type == "cvebench":
+                reward_config = {
+                    "attacker_container_name": getattr(
+                        env.adapter, "attacker_container_name", None
+                    ),
+                    "evaluator_done_url": getattr(
+                        env.adapter,
+                        "evaluator_done_url",
+                        "http://target:9091/done",
+                    ),
+                }
+                reward_calculator = RewardCalculator(
+                    task_type="cvebench",
+                    config=reward_config,
+                )
+                reward_task_id = request.cve_id
+                total_reward = reward_calculator.compute_episode_reward(
+                    trajectory=traj_dicts,
+                    task_id=reward_task_id,
+                )
+                print(f"[RolloutExecutor] Total reward: {total_reward}")
+                if env:
+                    env.close()
+                    print("[RolloutExecutor] Environment closed")
+            else:
+                if env:
+                    env.close()
+                    print("[RolloutExecutor] Environment closed")
+                reward_config = {
+                    "dataset_path": request.metadata.get("dataset_path", ""),
+                }
+                reward_calculator = RewardCalculator(
+                    task_type="vulhub",
+                    config=reward_config,
+                )
+                reward_task_id = request.vulhub_path or request.cve_id
+                total_reward = reward_calculator.compute_episode_reward(
+                    trajectory=traj_dicts,
+                    task_id=reward_task_id,
+                )
+                print(f"[RolloutExecutor] Total reward: {total_reward}")
             
             # 7. Build result
             duration = time.time() - start_time
