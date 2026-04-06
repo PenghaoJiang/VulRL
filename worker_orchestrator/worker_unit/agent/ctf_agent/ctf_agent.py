@@ -43,7 +43,7 @@ class CTFAgent(BaseAgent):
         Initialize CTF agent.
         
         Args:
-            env: VulhubAdapter instance (must be already setup)
+            env: Docker env adapter (e.g. VulhubAdapter or CVEBenchAdapter), already setup
             llm_client: InferenceEngineClientWrapper instance
             config: Agent configuration:
                 - config_file: Path to agent config YAML (optional)

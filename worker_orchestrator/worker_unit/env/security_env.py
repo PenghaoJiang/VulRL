@@ -4,9 +4,15 @@ Simplified Gymnasium-compliant interface for vulnerability exploitation.
 """
 
 from typing import Dict, Any, Optional, Tuple
-from pathlib import Path
 
-from worker_unit.docker import VulhubAdapter, StandardAction, ActionType
+from worker_unit.docker import VulhubAdapter, CVEBenchAdapter, StandardAction, ActionType
+
+
+def _make_env_adapter(config: Dict[str, Any]):
+    task_type = (config.get("task_type") or "vulhub").lower()
+    if task_type == "cvebench":
+        return CVEBenchAdapter(config)
+    return VulhubAdapter(config)
 
 
 class SecurityEnv:
@@ -17,7 +23,7 @@ class SecurityEnv:
     - reset() -> (observation, info)
     - step(action) -> (observation, reward, terminated, truncated, info)
     
-    Uses VulhubAdapter to manage Docker environments.
+    Uses VulhubAdapter or CVEBenchAdapter depending on task_type.
     """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -29,8 +35,7 @@ class SecurityEnv:
         """
         self.config = config or {}
         
-        # Create adapter (currently only supports Vulhub)
-        self.adapter = VulhubAdapter(self.config)
+        self.adapter = _make_env_adapter(self.config)
         
         # Progress tracking
         self.task_id = self.config.get('task_id', 'unknown')

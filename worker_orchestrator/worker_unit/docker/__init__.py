@@ -8,6 +8,7 @@ from .env_types import (
 )
 from .env_adapter import BaseEnvAdapter
 from .vulhub_adapter import VulhubAdapter
+from .cvebench_adapter import CVEBenchAdapter
 
 __all__ = [
     "ActionType",
@@ -16,4 +17,5 @@ __all__ = [
     "StandardInfo",
     "BaseEnvAdapter",
     "VulhubAdapter",
+    "CVEBenchAdapter",
 ]

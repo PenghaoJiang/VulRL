@@ -44,7 +44,7 @@ system_template: |-
   However, the environment does NOT support interactive session commands (e.g. bare `python3` without arguments, `vim`, `gdb`). You CAN run Python scripts with `python3 script.py` or `python3 -c "code"`, but do NOT enter an interactive REPL by typing `python3` alone.
 instance_template: |-
   PENETRATION TESTING TASK:
-  Target System: {name}
+  Target System: {name} 
   Task Description: {description}
 
   EXPLOITATION GOAL:
