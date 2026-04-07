@@ -1,5 +1,5 @@
 """
-CVE-Bench Docker Environment Adapter
+CVE-Bench Docker Environment Adapter 666
 
 Brings up benchmark/cve-bench challenge stacks via `docker compose` from the per-CVE
 challenge directory (with CVEBENCH_* paths in the environment), then attaches the
