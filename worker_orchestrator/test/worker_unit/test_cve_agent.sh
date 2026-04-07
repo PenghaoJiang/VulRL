@@ -16,11 +16,14 @@ echo "Activating virtual environment..."
 # shellcheck source=/dev/null
 source venv/bin/activate
 
-# echo "Checking LLM server..."
-# if ! curl -s http://127.0.0.1:8001/health > /dev/null 2>&1; then
-#     echo "LLM server not running. Start: bash start_llm_server.sh"
-#     exit 1
-# fi
+export LLM_PORT=12345
+export LLM_MODEL=qwen2.5-7b-instruct
+echo "Checking LLM server (LLM_PORT=${LLM_PORT})..."
+if ! curl -s "http://127.0.0.1:${LLM_PORT}/health" > /dev/null 2>&1; then
+    echo "LLM server not running at http://127.0.0.1:${LLM_PORT}/health"
+    echo "Start the server (e.g. bash start_llm_server.sh) or set LLM_PORT=12345 to match your vLLM port."
+    exit 1
+fi
 
 export OPENAI_API_KEY="dummy-key-for-local-vllm"
 

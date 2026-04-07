@@ -11,16 +11,15 @@ from typing import Dict, Any, List, Optional
 
 # Import from worker_orchestrator modules only
 from worker_router.models import RolloutRequest, RolloutResult
-# from ez_llm_server.client import InferenceEngineClientWrapper  # uncomment with LLM block below
+from ez_llm_server.client import InferenceEngineClientWrapper
 
 # Import from worker_unit modules (copied from vulrl_inside_skyrl)
 from worker_unit.env import SecurityEnv
 from worker_unit.reward import RewardCalculator
 # from worker_unit.agent_loop import agent_loop  # OLD: Commented out, using agents instead
 
-# Import agents (restore when uncommenting agent block below)
-# from worker_unit.agent.demo_agent import DemoAgent
-# from worker_unit.agent.ctf_agent import CTFAgent
+from worker_unit.agent.demo_agent import DemoAgent
+from worker_unit.agent.ctf_agent import CTFAgent
 
 
 def _trajectory_to_dicts(trajectory) -> List[Dict[str, Any]]:
@@ -82,14 +81,13 @@ class RolloutExecutor:
         env = None
 
         try:
-            # 1. LLM client (commented out — skip agent/LLM; go to reward after env reset)
-            llm_client = None
-            # print("[RolloutExecutor] Initializing LLM client...")
-            # llm_client = InferenceEngineClientWrapper(
-            #     endpoint=request.llm_endpoint,
-            #     model_name=request.model_name,
-            # )
-            # print(f"[RolloutExecutor] LLM client ready: {request.llm_endpoint}")
+            # 1. Initialize LLM client
+            print("[RolloutExecutor] Initializing LLM client...")
+            llm_client = InferenceEngineClientWrapper(
+                endpoint=request.llm_endpoint,
+                model_name=request.model_name,
+            )
+            print(f"[RolloutExecutor] LLM client ready: {request.llm_endpoint}")
 
             # 2. Initialize environment
             print("[RolloutExecutor] Initializing environment...")
@@ -144,43 +142,42 @@ class RolloutExecutor:
             
             print(f"[RolloutExecutor] Initial observation: {observation_str[:200]}...")
             
-            # 4. Agent (commented out — no LLM/agent; empty trajectory, then reward)
-            agent = None
-            trajectory = []
-            # print(f"[RolloutExecutor] Creating agent (type: {agent_type})...")
-            # if agent_type == "demo":
-            #     agent = DemoAgent(
-            #         env=env,
-            #         llm_client=llm_client,
-            #         config={
-            #             "model_name": request.model_name,
-            #             "temperature": request.temperature,
-            #             "max_tokens": request.max_tokens,
-            #         },
-            #     )
-            # elif agent_type == "ctf":
-            #     agent = CTFAgent(
-            #         env=env.adapter,
-            #         llm_client=llm_client,
-            #         config={
-            #             "model_name": request.model_name,
-            #             "temperature": request.temperature,
-            #             "max_tokens": request.max_tokens,
-            #             "step_limit": request.max_steps,
-            #             "config_file": request.metadata.get("agent_config_file"),
-            #         },
-            #     )
-            # else:
-            #     raise ValueError(f"Unknown agent_type: {agent_type}")
-            # print(f"[RolloutExecutor] Starting {agent.get_name()}...")
-            # trajectory = await agent.run(
-            #     initial_prompt=request.prompt,
-            #     max_steps=request.max_steps,
-            #     temperature=request.temperature,
-            #     max_tokens=request.max_tokens,
-            # )
-            # print(f"[RolloutExecutor] Agent completed: {len(trajectory)} steps")
-            print("[RolloutExecutor] Agent skipped; computing reward from empty trajectory")
+            # 4. Create and run agent
+            print(f"[RolloutExecutor] Creating agent (type: {agent_type})...")
+
+            if agent_type == "demo":
+                agent = DemoAgent(
+                    env=env,
+                    llm_client=llm_client,
+                    config={
+                        "model_name": request.model_name,
+                        "temperature": request.temperature,
+                        "max_tokens": request.max_tokens,
+                    },
+                )
+            elif agent_type == "ctf":
+                agent = CTFAgent(
+                    env=env.adapter,
+                    llm_client=llm_client,
+                    config={
+                        "model_name": request.model_name,
+                        "temperature": request.temperature,
+                        "max_tokens": request.max_tokens,
+                        "step_limit": request.max_steps,
+                        "config_file": request.metadata.get("agent_config_file"),
+                    },
+                )
+            else:
+                raise ValueError(f"Unknown agent_type: {agent_type}")
+
+            print(f"[RolloutExecutor] Starting {agent.get_name()}...")
+            trajectory = await agent.run(
+                initial_prompt=request.prompt,
+                max_steps=request.max_steps,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+            )
+            print(f"[RolloutExecutor] Agent completed: {len(trajectory)} steps")
 
             traj_dicts = _trajectory_to_dicts(trajectory)
 
