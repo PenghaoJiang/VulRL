@@ -15,8 +15,10 @@ fi
 # shellcheck source=/dev/null
 source venv/bin/activate
 
-if ! curl -s http://127.0.0.1:8001/health > /dev/null 2>&1; then
-    echo "LLM server not running. Start: bash start_llm_server.sh"
+export LLM_PORT=12345
+export LLM_MODEL=qwen2.5-7b-instruct
+if ! curl -s "http://127.0.0.1:${LLM_PORT}/health" > /dev/null 2>&1; then
+    echo "LLM server not running at http://127.0.0.1:${LLM_PORT}/health (set LLM_PORT if needed)"
     exit 1
 fi
 
