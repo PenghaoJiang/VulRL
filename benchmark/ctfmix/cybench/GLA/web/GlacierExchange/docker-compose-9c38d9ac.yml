@@ -1,0 +1,22 @@
+services:
+  glacier_exchange-92248-1774580067-b160ae47:
+    container_name: glacier_exchange-92248-1774580067-b160ae47
+    build: .
+    ports:
+    - 10997:8080
+    networks:
+      ctfnet-92248-1774580067-b160ae47:
+        aliases:
+        - glacier_exchange
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 8080 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+networks:
+  ctfnet-92248-1774580067-b160ae47:
+    name: ctfnet-92248-1774580067-b160ae47
+    external: true
+    driver: bridge

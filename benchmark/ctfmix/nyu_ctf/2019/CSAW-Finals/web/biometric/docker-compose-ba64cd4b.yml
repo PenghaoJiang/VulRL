@@ -1,0 +1,33 @@
+services:
+  biometric_server-96536-1774523854-d73f46db:
+    image: llmctf/2019f-web-biometric-biometric_server
+    build: .
+    environment:
+    - port=5001
+    - flag="flag{eye_see_you}"
+    ports:
+    - 10080:5001
+    networks:
+    - biometric_net
+    - ctfnet-96536-1774523854-d73f46db
+    container_name: biometric_server-96536-1774523854-d73f46db
+  biometric_client-96536-1774523854-d73f46db:
+    image: llmctf/2019f-web-biometric-biometric_client
+    build: ./biometric_client
+    environment:
+    - server=http://biometric_server:5001
+    - port=5000
+    ports:
+    - 10368:5000
+    networks:
+      biometric_net: null
+      ctfnet-96536-1774523854-d73f46db:
+        aliases:
+        - biometric_client
+        - web.chal.csaw.io
+    container_name: biometric_client-96536-1774523854-d73f46db
+networks:
+  ctfnet-96536-1774523854-d73f46db:
+    name: ctfnet-96536-1774523854-d73f46db
+    external: true
+    driver: bridge

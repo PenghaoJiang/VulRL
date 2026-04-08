@@ -1,0 +1,24 @@
+services:
+  noisy-crc-61806-1774562350-fd398bb8:
+    container_name: noisy-crc-61806-1774562350-fd398bb8
+    build:
+      context: ./challenge
+      dockerfile: Dockerfile
+    ports:
+    - 17322:9999
+    networks:
+      ctfnet-61806-1774562350-fd398bb8:
+        aliases:
+        - crypt.chal.csaw.io
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 9999 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+networks:
+  ctfnet-61806-1774562350-fd398bb8:
+    name: ctfnet-61806-1774562350-fd398bb8
+    external: true
+    driver: bridge

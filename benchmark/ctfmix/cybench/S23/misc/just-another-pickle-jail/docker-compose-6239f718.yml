@@ -1,0 +1,24 @@
+services:
+  just-another-pickle-jail-61806-1774562367-09a0432f:
+    container_name: just-another-pickle-jail-61806-1774562367-09a0432f
+    build: ./challenge/
+    ports:
+    - 18527:1337
+    networks:
+      ctfnet-61806-1774562367-09a0432f:
+        aliases:
+        - misc.chal.csaw.io
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 1337 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    privileged: false
+    read_only: true
+networks:
+  ctfnet-61806-1774562367-09a0432f:
+    name: ctfnet-61806-1774562367-09a0432f
+    external: true
+    driver: bridge
