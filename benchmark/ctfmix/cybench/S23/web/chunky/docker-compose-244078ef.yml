@@ -1,0 +1,32 @@
+services:
+  blog-61806-1774562430-c782ab78:
+    build: ./dist/blog
+    container_name: blog-61806-1774562430-c782ab78
+    extra_hosts:
+    - chunky.chals.sekai.team:host-gateway
+    environment:
+    - DB=blog.db
+    - FLAG=SEKAI{1337}
+    - SECRET_KEY=kgDz@W9ks29myrk8NxiIBqntoZ*N4oBX@
+    - JWKS_URL_TEMPLATE=http://chunky.chals.sekai.team:8080/{user_id}/.well-known/jwks.json
+    networks:
+    - ctfnet-61806-1774562430-c782ab78
+  nginx-61806-1774562430-c782ab78:
+    build: ./dist/nginx
+    container_name: nginx-61806-1774562430-c782ab78
+    networks:
+    - ctfnet-61806-1774562430-c782ab78
+  cache-61806-1774562430-c782ab78:
+    build: ./dist/rcache
+    container_name: cache-61806-1774562430-c782ab78
+    ports:
+    - 10415:8080
+    networks:
+      ctfnet-61806-1774562430-c782ab78:
+        aliases:
+        - web.chal.csaw.io
+networks:
+  ctfnet-61806-1774562430-c782ab78:
+    name: ctfnet-61806-1774562430-c782ab78
+    external: true
+    driver: bridge

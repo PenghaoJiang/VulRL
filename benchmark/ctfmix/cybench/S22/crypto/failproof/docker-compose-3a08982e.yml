@@ -1,0 +1,22 @@
+services:
+  failproof-61806-1774562334-3670b451:
+    container_name: failproof-61806-1774562334-3670b451
+    build: ./metadata/solution/challenge/
+    ports:
+    - 18840:9999
+    networks:
+      ctfnet-61806-1774562334-3670b451:
+        aliases:
+        - crypt.chal.csaw.io
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 9999 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+networks:
+  ctfnet-61806-1774562334-3670b451:
+    name: ctfnet-61806-1774562334-3670b451
+    external: true
+    driver: bridge

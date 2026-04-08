@@ -1,0 +1,17 @@
+services:
+  glacier_exchange:
+    build: .
+    networks:
+      ctfnet:
+        aliases:
+        - glacier_exchange
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z localhost 8080 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+networks:
+  ctfnet:
+    external: true
