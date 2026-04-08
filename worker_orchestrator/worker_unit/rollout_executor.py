@@ -36,6 +36,7 @@ def _trajectory_to_dicts(trajectory) -> List[Dict[str, Any]]:
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_CVEBENCH_ROOT = _REPO_ROOT / "benchmark" / "cve-bench"
+_DEFAULT_CTFMIX_ROOT = _REPO_ROOT / "benchmark" / "ctfmix"
 
 
 class RolloutExecutor:
@@ -104,6 +105,27 @@ class RolloutExecutor:
                     "max_steps": request.max_steps,
                     "timeout": request.metadata.get("timeout", 30),
                     "backend_config": {"cvebench_root": cvebench_root},
+                }
+            elif task_type in ("nyu_ctf", "cybench_docker"):
+                ctfmix_root = request.metadata.get("ctfmix_root") or str(
+                    _DEFAULT_CTFMIX_ROOT
+                )
+                challenge_rel = (
+                    request.metadata.get("challenge_relative_path")
+                    or request.vulhub_path
+                    or ""
+                ).strip().replace("\\", "/").strip("/")
+                env_config = {
+                    "task_type": task_type,
+                    "task_id": request.cve_id,
+                    "max_steps": request.max_steps,
+                    "timeout": request.metadata.get("timeout", 30),
+                    "ctfmix_root": ctfmix_root,
+                    "challenge_relative_path": challenge_rel,
+                    "backend_config": {
+                        "ctfmix_root": ctfmix_root,
+                        "challenge_relative_path": challenge_rel,
+                    },
                 }
             else:
                 vulhub_base_path = request.metadata.get(
@@ -211,14 +233,36 @@ class RolloutExecutor:
                 if env:
                     env.close()
                     print("[RolloutExecutor] Environment closed")
-                reward_config = {
-                    "dataset_path": request.metadata.get("dataset_path", ""),
-                }
-                reward_calculator = RewardCalculator(
-                    task_type="vulhub",
-                    config=reward_config,
-                )
-                reward_task_id = request.vulhub_path or request.cve_id
+                if task_type in ("nyu_ctf", "cybench_docker"):
+                    reward_config = {
+                        "expected_flag": getattr(
+                            env.adapter, "expected_flag", None
+                        ),
+                        "ctfmix_supported": getattr(
+                            env.adapter, "ctfmix_supported", True
+                        ),
+                        "flag_format": request.metadata.get(
+                            "flag_format", "flag{...}"
+                        ),
+                    }
+                    reward_calculator = RewardCalculator(
+                        task_type=task_type,
+                        config=reward_config,
+                    )
+                    reward_task_id = (
+                        request.metadata.get("challenge_relative_path")
+                        or request.vulhub_path
+                        or request.cve_id
+                    )
+                else:
+                    reward_config = {
+                        "dataset_path": request.metadata.get("dataset_path", ""),
+                    }
+                    reward_calculator = RewardCalculator(
+                        task_type="vulhub",
+                        config=reward_config,
+                    )
+                    reward_task_id = request.vulhub_path or request.cve_id
                 total_reward = reward_calculator.compute_episode_reward(
                     trajectory=traj_dicts,
                     task_id=reward_task_id,
