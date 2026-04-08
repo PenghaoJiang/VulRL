@@ -9,6 +9,8 @@ from .env_types import (
 from .env_adapter import BaseEnvAdapter
 from .vulhub_adapter import VulhubAdapter
 from .cvebench_adapter import CVEBenchAdapter
+from .nyu_ctf_adapter import NYUCTFAdapter
+from .cybench_docker_adapter import CybenchDockerAdapter
 
 __all__ = [
     "ActionType",
@@ -18,4 +20,6 @@ __all__ = [
     "BaseEnvAdapter",
     "VulhubAdapter",
     "CVEBenchAdapter",
+    "NYUCTFAdapter",
+    "CybenchDockerAdapter",
 ]

@@ -20,7 +20,13 @@ class RewardRouter:
 
     def _get_reward_implementation(self):
         """Get task-specific reward implementation (only the selected class is constructed)."""
-        from worker_unit.reward.task_specific import CVEBenchReward, VulhubReward, XbowReward
+        from worker_unit.reward.task_specific import (
+            CVEBenchReward,
+            VulhubReward,
+            XbowReward,
+            NYUCTFFlagReward,
+            CybenchFlagReward,
+        )
 
         if self.task_type == "vulhub":
             return VulhubReward(self.config)
@@ -28,7 +34,11 @@ class RewardRouter:
             return XbowReward(self.config)
         if self.task_type == "cvebench":
             return CVEBenchReward(self.config)
-        return CVEBenchReward(self.config)
+        if self.task_type == "nyu_ctf":
+            return NYUCTFFlagReward(self.config)
+        if self.task_type == "cybench_docker":
+            return CybenchFlagReward(self.config)
+        return VulhubReward(self.config)
 
     def compute_reward(
         self,

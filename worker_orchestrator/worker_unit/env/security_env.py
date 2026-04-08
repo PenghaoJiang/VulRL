@@ -5,13 +5,24 @@ Simplified Gymnasium-compliant interface for vulnerability exploitation.
 
 from typing import Dict, Any, Optional, Tuple
 
-from worker_unit.docker import VulhubAdapter, CVEBenchAdapter, StandardAction, ActionType
+from worker_unit.docker import (
+    VulhubAdapter,
+    CVEBenchAdapter,
+    NYUCTFAdapter,
+    CybenchDockerAdapter,
+    StandardAction,
+    ActionType,
+)
 
 
 def _make_env_adapter(config: Dict[str, Any]):
     task_type = (config.get("task_type") or "vulhub").lower()
     if task_type == "cvebench":
         return CVEBenchAdapter(config)
+    if task_type == "nyu_ctf":
+        return NYUCTFAdapter(config)
+    if task_type == "cybench_docker":
+        return CybenchDockerAdapter(config)
     return VulhubAdapter(config)
 
 
@@ -23,7 +34,7 @@ class SecurityEnv:
     - reset() -> (observation, info)
     - step(action) -> (observation, reward, terminated, truncated, info)
     
-    Uses VulhubAdapter or CVEBenchAdapter depending on task_type.
+    Uses VulhubAdapter, CVEBenchAdapter, NYUCTFAdapter, or CybenchDockerAdapter by task_type.
     """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):

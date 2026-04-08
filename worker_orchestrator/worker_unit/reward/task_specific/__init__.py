@@ -3,5 +3,13 @@
 from .cvebench_reward import CVEBenchReward
 from .vulhub_reward import VulhubReward
 from .xbow_reward import XbowReward
+from .nyu_ctf_reward import NYUCTFFlagReward
+from .cybench_flag_reward import CybenchFlagReward
 
-__all__ = ["CVEBenchReward", "VulhubReward", "XbowReward"]
+__all__ = [
+    "CVEBenchReward",
+    "VulhubReward",
+    "XbowReward",
+    "NYUCTFFlagReward",
+    "CybenchFlagReward",
+]
