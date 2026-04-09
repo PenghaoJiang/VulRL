@@ -1,18 +1,24 @@
 """
 Shared Docker compose bring-up for CTFMix-style NYU + Cybench challenges (ctfnet, attacker).
-Subclasses set adapter label and optional Cybench path skip list.
+
+Optional per-rollout isolation (default on): pre-create ``ctfnet-<suffix>``, rewrite compose
+to use that external network, and drop ``container_name`` so parallel runs do not clash.
+
+Optional dynamic host ports (default on): remap published ``host:container`` mappings to
+ephemeral host ports; in-container URLs from ``challenge.json`` stay on internal ports/DNS.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import socket
 import subprocess
 import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import docker
 import yaml
@@ -50,12 +56,29 @@ def _ensure_ctfnet(docker_client: docker.DockerClient) -> None:
         print("[CTFMixDocker] Created docker network ctfnet")
 
 
-def _normalize_compose_strip_container_name(compose_path: Path) -> Tuple[Path, bool]:
-    """Return path to use for compose up; may be a temp file if container_name removed."""
-    data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+def _ensure_bridge_network(docker_client: docker.DockerClient, name: str) -> bool:
+    """Ensure a named bridge exists. Returns True if this call created it."""
+    try:
+        docker_client.networks.get(name)
+        return False
+    except docker.errors.NotFound:
+        docker_client.networks.create(name, driver="bridge")
+        print(f"[CTFMixDocker] Created docker network {name}")
+        return True
+
+
+def _allocate_free_tcp_port() -> int:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("", 0))
+    port = int(s.getsockname()[1])
+    s.close()
+    return port
+
+
+def _strip_container_names_from_services(data: Dict[str, Any]) -> bool:
     services = data.get("services")
     if not isinstance(services, dict):
-        return compose_path, False
+        return False
     modified = False
     new_services: Dict[str, Any] = {}
     for name, cfg in services.items():
@@ -67,17 +90,137 @@ def _normalize_compose_strip_container_name(compose_path: Path) -> Tuple[Path, b
             copy.pop("container_name", None)
             modified = True
         new_services[name] = copy
+    data["services"] = new_services
+    return modified
+
+
+def _rewrite_service_networks_ctfnet(
+    service_cfg: Dict[str, Any], isolated: str
+) -> bool:
+    """Replace literal ctfnet with isolated network name. Returns True if changed."""
+    if "networks" not in service_cfg:
+        return False
+    nets = service_cfg["networks"]
+    changed = False
+    if isinstance(nets, list):
+        new_list: List[Any] = []
+        for n in nets:
+            if n == "ctfnet":
+                new_list.append(isolated)
+                changed = True
+            else:
+                new_list.append(n)
+        if changed:
+            service_cfg["networks"] = new_list
+        return changed
+    if isinstance(nets, dict):
+        new_dict: Dict[str, Any] = {}
+        for k, v in nets.items():
+            if k == "ctfnet":
+                new_dict[isolated] = v
+                changed = True
+            else:
+                new_dict[k] = v
+        if changed:
+            service_cfg["networks"] = new_dict
+        return changed
+    return False
+
+
+def _rewrite_compose_isolated_ctfnet(data: Dict[str, Any], isolated_network: str) -> None:
+    """
+    EnIGMA+-style: one external bridge network per rollout, replace compose 'ctfnet' refs.
+    """
+    services = data.get("services")
+    if isinstance(services, dict):
+        for _sn, cfg in services.items():
+            if isinstance(cfg, dict):
+                _rewrite_service_networks_ctfnet(cfg, isolated_network)
+    data["networks"] = {
+        isolated_network: {
+            "name": isolated_network,
+            "external": True,
+        }
+    }
+
+
+def _rewrite_host_port_mappings(data: Dict[str, Any]) -> bool:
+    """
+    Remap host-published ports to ephemeral host ports (avoids 'address already in use').
+    Container-side ports unchanged; in-network DNS still uses internal ports.
+    """
+    services = data.get("services")
+    if not isinstance(services, dict):
+        return False
+    changed = False
+    host_container = re.compile(r"^(\d+):(\d+)(?:/(?:tcp|udp))?$")
+    ip_host_container = re.compile(r"^([\d.]+):(\d+):(\d+)(?:/(?:tcp|udp))?$")
+    for _sname, cfg in services.items():
+        if not isinstance(cfg, dict):
+            continue
+        ports = cfg.get("ports")
+        if not isinstance(ports, list):
+            continue
+        new_ports: List[Union[str, int]] = []
+        for p in ports:
+            if isinstance(p, int):
+                new_ports.append(f"{_allocate_free_tcp_port()}:{p}")
+                changed = True
+                continue
+            if not isinstance(p, str):
+                new_ports.append(p)
+                continue
+            s = p.strip()
+            m3 = ip_host_container.match(s)
+            if m3:
+                host_ip, _hp, cport = m3.group(1), m3.group(2), m3.group(3)
+                new_ports.append(f"{host_ip}:{_allocate_free_tcp_port()}:{cport}")
+                changed = True
+                continue
+            m2 = host_container.match(s)
+            if m2:
+                cport = m2.group(2)
+                new_ports.append(f"{_allocate_free_tcp_port()}:{cport}")
+                changed = True
+                continue
+            new_ports.append(p)
+        cfg["ports"] = new_ports
+    return changed
+
+
+def _build_runtime_compose(
+    *,
+    compose_path: Path,
+    challenge_dir: Path,
+    isolated_network: Optional[str],
+    dynamic_host_ports: bool,
+) -> Tuple[Path, bool]:
+    """
+    Write docker-compose-{uuid}.yml beside the original when any transform applies.
+    Returns (path_for_compose_cli, should_unlink_after).
+    """
+    data = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+    modified = _strip_container_names_from_services(data)
+    if isolated_network:
+        _rewrite_compose_isolated_ctfnet(data, isolated_network)
+        modified = True
+    if dynamic_host_ports:
+        if _rewrite_host_port_mappings(data):
+            modified = True
     if not modified:
         return compose_path, False
-    data["services"] = new_services
-    tmp = compose_path.parent / f"ctfmix-compose-{uuid.uuid4().hex[:8]}.yml"
-    tmp.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    return tmp, True
+    out = challenge_dir / f"docker-compose-{uuid.uuid4().hex[:8]}.yml"
+    out.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    return out, True
 
 
 class CTFMixDockerAdapterBase(BaseEnvAdapter):
     """
-    Bring up challenge_dir/docker-compose.yml on ctfnet, attach cve-attacker.
+    Bring up challenge_dir/docker-compose.yml, attach cve-attacker on the target's network.
+
+    ``ctfmix_isolated_network`` (default True): use a dedicated ``ctfnet-<suffix>`` network.
+    ``ctfmix_dynamic_host_ports`` (default True): publish services on random host ports.
+
     service_url uses in-network host:port from challenge.json (not 127.0.0.1).
     """
 
@@ -135,6 +278,19 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
         self.docker_client = docker.from_env()
         self.compose_cmd = _detect_compose_command()
 
+        self.ctfmix_isolated_network = bool(
+            config.get(
+                "ctfmix_isolated_network", bc.get("ctfmix_isolated_network", True)
+            )
+        )
+        self.ctfmix_dynamic_host_ports = bool(
+            config.get(
+                "ctfmix_dynamic_host_ports", bc.get("ctfmix_dynamic_host_ports", True)
+            )
+        )
+        self._isolated_network_name: Optional[str] = None
+        self._created_isolated_network = False
+
         self.target_container_name: Optional[str] = None
         self.target_container_obj: Optional[docker.models.containers.Container] = None
         self.attacker_container_name: Optional[str] = None
@@ -183,10 +339,23 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
         if not self.challenge_dir.is_dir():
             raise FileNotFoundError(f"Challenge directory not found: {self.challenge_dir}")
 
-        _ensure_ctfnet(self.docker_client)
+        self._isolated_network_name = None
+        self._created_isolated_network = False
+        if self.ctfmix_isolated_network:
+            self._isolated_network_name = f"ctfnet-{uuid.uuid4().hex[:12]}"
+            self._created_isolated_network = _ensure_bridge_network(
+                self.docker_client, self._isolated_network_name
+            )
+        else:
+            _ensure_ctfnet(self.docker_client)
 
-        runtime_compose, self._compose_was_temp = _normalize_compose_strip_container_name(
-            self.compose_path
+        runtime_compose, self._compose_was_temp = _build_runtime_compose(
+            compose_path=self.compose_path,
+            challenge_dir=self.challenge_dir,
+            isolated_network=self._isolated_network_name
+            if self.ctfmix_isolated_network
+            else None,
+            dynamic_host_ports=self.ctfmix_dynamic_host_ports,
         )
         self._runtime_compose_path = runtime_compose
 
@@ -233,6 +402,14 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
                     self._runtime_compose_path.unlink(missing_ok=True)  # py3.8+ ok
                 except OSError:
                     pass
+            if self._created_isolated_network and self._isolated_network_name:
+                try:
+                    net = self.docker_client.networks.get(self._isolated_network_name)
+                    net.remove()
+                except Exception:
+                    pass
+                self._created_isolated_network = False
+                self._isolated_network_name = None
         except Exception as e:
             print(f"[{self.ADAPTER_LABEL}] Cleanup error: {e}")
 
