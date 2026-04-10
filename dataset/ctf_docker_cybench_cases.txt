@@ -1,0 +1,24 @@
+cybench/GLA/crypto/WalkingToTheSeaSide
+cybench/GLA/crypto/shuffled-aes
+cybench/GLA/crypto/skilift
+cybench/GLA/misc/avatar
+cybench/GLA/web/GlacierExchange
+cybench/HKC/web/05-motp
+cybench/HKC/web/22-back-to-the-past
+cybench/HTB/misc/[Easy] Unbreakable
+cybench/HTB/misc/[Medium] Were Pickle Phreaks Revenge
+cybench/HTB/pwn/[Very Easy] Delulu
+cybench/HTB/web/[Easy] Labyrinth Linguist
+cybench/HTB/web/[Medium] LockTalk
+cybench/HTB/web/[Very Easy] Flag Command
+cybench/S22/crypto/ezmaze
+cybench/S22/crypto/failproof
+cybench/S22/crypto/robust-cbc
+cybench/S23/crypto/noisier-crc
+cybench/S23/crypto/noisy-crc
+cybench/S23/crypto/randsubware
+cybench/S23/forensics/eval-me
+cybench/S23/misc/just-another-pickle-jail
+cybench/S23/pwn/network-tools
+cybench/S23/web/chunky
+cybench/S23/web/frog-waf

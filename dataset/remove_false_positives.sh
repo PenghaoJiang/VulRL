@@ -1,11 +1,13 @@
 #!/bin/bash
 
 # ============================================================================
-# Remove False Positive Cases Script
+# Remove False Positive and True Negative Cases Script
 # ============================================================================
-# This script removes all false positive cases identified in the validation
-# process. These cases have verify.py marked as True but Agent 1 failed to
-# actually achieve the exploit.
+# This script removes cases identified in the validation process:
+# - False Positives: verify.py marked as True but Agent 1 failed
+# - True Negatives: verify.py marked as False and Agent 1 failed
+#
+# These cases should be regenerated or fixed before inclusion in the dataset.
 #
 # Usage: bash remove_false_positives.sh [--dry-run]
 # ============================================================================
@@ -16,9 +18,11 @@
 # Result directory (where case folders are located)
 RESULT_DIR="/data1/jph/tmp/result_v4"
 
-# False positive cases to remove (vulhub_path format)
-# These are cases where verify.py says True BUT Agent 1 failed
+# Cases to remove (vulhub_path format)
+# Includes both False Positives (verify.py says True BUT Agent 1 failed)
+# and True Negatives (verify.py says False AND Agent 1 failed)
 FALSE_POSITIVES=(
+  # False Positives (53 cases)
   "activemq/CVE-2016-3088"
   "adminer/CVE-2021-21311"
   "apisix/CVE-2021-45232"
@@ -72,6 +76,45 @@ FALSE_POSITIVES=(
   "vite/CVE-2025-30208"
   "weblogic/CVE-2017-10271"
   "weblogic/CVE-2020-14882"
+  # True Negatives (38 cases)
+  "cacti/CVE-2022-46169"
+  "cacti/CVE-2023-39361"
+  "cmsms/CVE-2021-26120"
+  "couchdb/CVE-2022-24706"
+  "craftcms/CVE-2023-41892"
+  "discuz/wooyun-2010-080723"
+  "drupal/CVE-2014-3704"
+  "drupal/CVE-2017-6920"
+  "drupal/CVE-2018-7600"
+  "drupal/CVE-2018-7602"
+  "drupal/CVE-2019-6339"
+  "ecshop/collection_list-sqli"
+  "elfinder/CVE-2021-32682"
+  "erlang/CVE-2025-32433"
+  "ffmpeg/CVE-2017-9993"
+  "geoserver/CVE-2022-24816"
+  "gitea/1.4-rce"
+  "httpd/CVE-2017-15715"
+  "imagemagick/CVE-2016-3714"
+  "jira/CVE-2019-11581"
+  "joomla/CVE-2015-8562"
+  "kibana/CVE-2018-17246"
+  "kibana/CVE-2019-7609"
+  "log4j/CVE-2017-5645"
+  "magento/2.2-sqli"
+  "metabase/CVE-2023-38646"
+  "mysql/CVE-2012-2122"
+  "nginx/CVE-2017-7529"
+  "postgres/CVE-2018-1058"
+  "ruby/CVE-2017-17405"
+  "shiro/CVE-2010-3863"
+  "struts2/s2-061"
+  "tikiwiki/CVE-2020-15906"
+  "uwsgi/unacc"
+  "weblogic/CVE-2018-2894"
+  "weblogic/CVE-2023-21839"
+  "wordpress/pwnscriptum"
+  "xxl-job/unacc"
 )
 
 # ============================================================================
@@ -102,9 +145,11 @@ FAILED=0
 NOT_FOUND=0
 
 echo "=========================================="
-echo "Removing False Positive Cases"
+echo "Removing Failed Cases"
 echo "=========================================="
 echo "Total cases: ${TOTAL}"
+echo "  - False Positives: 53"
+echo "  - True Negatives: 38"
 echo "Result directory: ${RESULT_DIR}"
 echo ""
 
