@@ -8,14 +8,14 @@ Successfully implemented a pluggable agent architecture for VulRL worker_unit, e
 
 ### 1. Docker Execution Layer (✅ Complete)
 
-**File**: `worker_unit/docker/docker_executor.py`
+**File**: `worker_unit/adapters/docker_executor.py`
 
 - Extracted execution primitives from VulhubAdapter
 - Supports bash, HTTP, and Python execution
 - Works with both Docker SDK (preferred) and subprocess (fallback)
 - Reusable by all agents
 
-**Modified**: `worker_unit/docker/vulhub_adapter.py`
+**Modified**: `worker_unit/adapters/vulhub_adapter.py`
 
 - Now uses Docker SDK instead of subprocess
 - Stores both container names AND Docker SDK objects
@@ -110,7 +110,7 @@ Successfully implemented a pluggable agent architecture for VulRL worker_unit, e
 - Passes to `executor.execute(request, agent_type=agent_type)`
 - Defaults to "demo" for backward compatibility
 
-**Modified**: `worker_unit/docker/env_types.py`
+**Modified**: `worker_unit/adapters/env_types.py`
 
 - Added `ActionType.PYTHON` (was missing but used in code)
 
@@ -173,7 +173,7 @@ worker_unit/
 │       └── commands/
 │           └── *.sh files
 │
-├── docker/
+├── adapters/
 │   ├── docker_executor.py (NEW)
 │   ├── env_adapter.py
 │   ├── env_types.py (modified - added PYTHON action type)
@@ -298,9 +298,9 @@ result = await executor.execute(request, agent_type="ctf")
 
 ## Files Modified
 
-1. `docker/docker_executor.py` - **CREATED**
-2. `docker/vulhub_adapter.py` - **MODIFIED** (Docker SDK, executor)
-3. `docker/env_types.py` - **MODIFIED** (added PYTHON)
+1. `adapters/docker_executor.py` - **CREATED**
+2. `adapters/vulhub_adapter.py` - **MODIFIED** (Docker SDK, executor)
+3. `adapters/env_types.py` - **MODIFIED** (added PYTHON)
 4. `agent/base_agent.py` - **CREATED**
 5. `agent/demo_agent/` - **CREATED** (2 files)
 6. `agent/ctf_agent/` - **CREATED** (4 adapter files + ctfmix/)

@@ -111,7 +111,7 @@ python3 << 'EOF'
 import sys
 sys.path.insert(0, '/path/to/worker_orchestrator')
 
-from worker_unit.docker.docker_executor import DockerExecutor
+from worker_unit.adapters.docker_executor import DockerExecutor
 print("✓ DockerExecutor imported")
 
 # Test with mock container (requires docker daemon running)

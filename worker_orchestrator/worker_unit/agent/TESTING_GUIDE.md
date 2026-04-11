@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.abspath('.'))
 from worker_unit.agent import BaseAgent
 from worker_unit.agent.demo_agent import DemoAgent
 from worker_unit.agent.ctf_agent import CTFAgent
-from worker_unit.docker.docker_executor import DockerExecutor
+from worker_unit.adapters.docker_executor import DockerExecutor
 
 print("✓ All core imports successful")
 
@@ -382,7 +382,7 @@ sudo systemctl start docker  # Linux
 ```bash
 # This means you're using an old version of VulhubAdapter
 # Fix: Ensure you're using the modified version (should have Docker SDK imports)
-grep "docker.models.containers" worker_unit/docker/vulhub_adapter.py
+grep "docker.models.containers" worker_unit/adapters/vulhub_adapter.py
 ```
 
 ## Success Criteria
