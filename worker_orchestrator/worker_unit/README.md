@@ -11,7 +11,7 @@ worker_unit/
 ├── rollout_executor.py         # Core: Execute complete rollout
 ├── agent_loop.py               # Simplified SkyRL agent loop
 │
-├── docker/                     # Docker environment adapters
+├── adapters/                   # Docker environment adapters
 │   ├── __init__.py
 │   ├── env_types.py            # StandardAction, StandardObservation, StandardInfo
 │   ├── env_adapter.py          # BaseEnvAdapter (abstract base class)
@@ -51,19 +51,19 @@ worker_unit/
 
 ### Docker Adapters
 
-- **`docker/env_types.py`**: Standard data structures
+- **`adapters/env_types.py`**: Standard data structures
   - `ActionType`: BASH, HTTP_REQUEST
   - `StandardAction`: Action representation
   - `StandardObservation`: Observation representation
   - `StandardInfo`: Metadata
 
-- **`docker/env_adapter.py`**: Abstract base adapter
+- **`adapters/env_adapter.py`**: Abstract base adapter
   - `setup()`: Start Docker environment
   - `teardown()`: Clean up
   - `reset()`: Reset to initial state
   - `step()`: Execute action
 
-- **`docker/vulhub_adapter.py`**: Vulhub implementation
+- **`adapters/vulhub_adapter.py`**: Vulhub implementation
   - Manages Docker Compose
   - Spawns attacker container
   - Executes bash/HTTP commands

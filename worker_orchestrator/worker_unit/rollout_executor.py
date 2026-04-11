@@ -37,6 +37,7 @@ def _trajectory_to_dicts(trajectory) -> List[Dict[str, Any]]:
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_CVEBENCH_ROOT = _REPO_ROOT / "benchmark" / "cve-bench"
 _DEFAULT_CTFMIX_ROOT = _REPO_ROOT / "benchmark" / "ctfmix"
+_DEFAULT_VULHUB_BENCHMARK_ROOT = _REPO_ROOT / "benchmark" / "vulhub"
 
 
 class RolloutExecutor:
@@ -128,10 +129,18 @@ class RolloutExecutor:
                     },
                 }
             else:
-                vulhub_base_path = request.metadata.get(
-                    "vulhub_base_path",
-                    "/mnt/e/git_fork_folder/VulRL/benchmark/vulhub",
-                )
+                # Prefer metadata; if missing or not a directory on this host (e.g. stale
+                # parquet paths from another machine), use this checkout's benchmark/vulhub.
+                _meta_vb = request.metadata.get("vulhub_base_path")
+                if _meta_vb and Path(_meta_vb).is_dir():
+                    vulhub_base_path = str(Path(_meta_vb).resolve())
+                else:
+                    if _meta_vb:
+                        print(
+                            f"[RolloutExecutor] vulhub_base_path not found on host ({_meta_vb!r}), "
+                            f"using {_DEFAULT_VULHUB_BENCHMARK_ROOT}"
+                        )
+                    vulhub_base_path = str(_DEFAULT_VULHUB_BENCHMARK_ROOT.resolve())
                 env_config = {
                     "task_type": "vulhub",
                     "task_id": request.cve_id,
