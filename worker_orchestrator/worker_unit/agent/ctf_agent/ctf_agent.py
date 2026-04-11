@@ -5,6 +5,7 @@ This agent wraps the CTFMix Agent class and adapts it to work with VulRL's
 worker_unit infrastructure.
 """
 
+import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from worker_router.models import TrajectoryStep as WorkerTrajectoryStep
@@ -90,6 +91,10 @@ class CTFAgent(BaseAgent):
             }
         )
         
+        # CTFMix Agent() builds OpenAIModel once before we replace it with LLMAdapter; that path
+        # reads OPENAI_API_KEY from the environment. Local OpenAI-compatible servers accept any key.
+        os.environ.setdefault("OPENAI_API_KEY", "dummy-key-for-local-vllm")
+
         # Create CTFMix Agent
         agent_args = AgentArguments(
             model=ModelArguments(
@@ -99,7 +104,7 @@ class CTFAgent(BaseAgent):
             ),
             config_file=config_file
         )
-        
+
         self.ctfmix_agent = Agent("primary", agent_args)
         
         # Replace CTFMix agent's model with our adapter
