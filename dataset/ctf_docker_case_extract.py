@@ -26,7 +26,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _WORKER_ORCH = _REPO_ROOT / "worker_orchestrator"
 sys.path.insert(0, str(_WORKER_ORCH))
 try:
-    from worker_unit.docker.cybench_docker_adapter import CYBENCH_SKIP_REL_PATHS
+    from worker_unit.adapters.cybench_docker_adapter import CYBENCH_SKIP_REL_PATHS
 except ImportError:
     CYBENCH_SKIP_REL_PATHS = frozenset(
         {

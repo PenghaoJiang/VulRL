@@ -57,15 +57,15 @@ The test script automatically patches the import:
 
 ```python
 # In test/worker_unit/test_rollout.py
-import worker_unit.docker as docker_module
-from worker_unit.docker.vulhub_adapter_test import VulhubAdapterTest
-docker_module.VulhubAdapter = VulhubAdapterTest
+import worker_unit.adapters as adapters_module
+from worker_unit.adapters.vulhub_adapter_test import VulhubAdapterTest
+adapters_module.VulhubAdapter = VulhubAdapterTest
 ```
 
 ### Manual Usage
 
 ```python
-from worker_unit.docker.vulhub_adapter_test import VulhubAdapterTest
+from worker_unit.adapters.vulhub_adapter_test import VulhubAdapterTest
 
 config = {
     "vulhub_path": "apache-cxf/CVE-2024-28752",
@@ -159,7 +159,7 @@ If this proves stable, we can:
 
 ## Related Files
 
-- `worker_unit/docker/vulhub_adapter.py` - Original adapter (uses Docker SDK)
-- `worker_unit/docker/vulhub_adapter_test.py` - Subprocess adapter (this implementation)
+- `worker_unit/adapters/vulhub_adapter.py` - Original adapter (uses Docker SDK)
+- `worker_unit/adapters/vulhub_adapter_test.py` - Subprocess adapter (this implementation)
 - `test/worker_unit/test_rollout.py` - Test that uses this adapter
 - `worker_unit/env/security_env.py` - Environment that imports VulhubAdapter

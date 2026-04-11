@@ -5,7 +5,7 @@ Simplified Gymnasium-compliant interface for vulnerability exploitation.
 
 from typing import Dict, Any, Optional, Tuple
 
-from worker_unit.docker import (
+from worker_unit.adapters import (
     VulhubAdapter,
     CVEBenchAdapter,
     NYUCTFAdapter,
