@@ -17,6 +17,10 @@ from .env_adapter import BaseEnvAdapter
 from .env_types import StandardAction, ActionType
 from .docker_executor import DockerExecutor
 
+# worker_unit/adapters/vulhub_adapter.py -> parents[3] = VulRL repo root
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_VULHUB_BENCHMARK_ROOT = _REPO_ROOT / "benchmark" / "vulhub"
+
 
 class VulhubAdapter(BaseEnvAdapter):
     """
@@ -28,10 +32,18 @@ class VulhubAdapter(BaseEnvAdapter):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         
-        # Get vulhub_base_path from config, with fallback
+        # benchmark/vulhub under this VulRL checkout (not a host-specific clone path).
         vulhub_base_path = config.get("backend_config", {}).get("vulhub_base_path")
         if not vulhub_base_path:
-            vulhub_base_path = config.get("vulhub_base_path", "/data1/jph/vulhub")
+            vulhub_base_path = config.get("vulhub_base_path")
+        if not vulhub_base_path:
+            vulhub_base_path = str(_DEFAULT_VULHUB_BENCHMARK_ROOT.resolve())
+        elif not Path(vulhub_base_path).is_dir():
+            print(
+                f"[VulhubAdapter] vulhub_base_path not found ({vulhub_base_path!r}), "
+                f"using {_DEFAULT_VULHUB_BENCHMARK_ROOT}"
+            )
+            vulhub_base_path = str(_DEFAULT_VULHUB_BENCHMARK_ROOT.resolve())
         
         vulhub_path = config.get("vulhub_path")
         

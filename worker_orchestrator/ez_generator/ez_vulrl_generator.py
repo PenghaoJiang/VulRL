@@ -7,6 +7,7 @@ pattern but uses HTTP communication.
 """
 
 import asyncio
+import json
 from typing import Dict, List, Optional, Any, Tuple, Union
 from pathlib import Path
 import sys
@@ -147,6 +148,27 @@ class EzVulRLGenerator(SkyRLGymGenerator):
             else:
                 prompt_text = str(prompt)
             
+            # Merge parquet row metadata (task_type, vulhub_base_path, ctfmix_root, …) with
+            # SkyRL batch fields. PromptDataset puts every non-prompt/env_class column in env_extras.
+            rollout_metadata: Dict[str, Any] = {}
+            raw_meta = env_extras.get("metadata")
+            if isinstance(raw_meta, str) and raw_meta.strip():
+                try:
+                    parsed = json.loads(raw_meta)
+                    if isinstance(parsed, dict):
+                        rollout_metadata.update(parsed)
+                except json.JSONDecodeError:
+                    pass
+            elif isinstance(raw_meta, dict):
+                rollout_metadata.update(raw_meta)
+            rollout_metadata.update(
+                {
+                    "trajectory_id": str(trajectory_id),
+                    "global_step": batch_metadata.global_step,
+                    "training_phase": batch_metadata.training_phase,
+                }
+            )
+
             # Build RolloutRequest (as plain dict)
             request: RolloutRequest = {
                 "cve_id": env_extras.get("cve_id", "UNKNOWN"),
@@ -158,11 +180,7 @@ class EzVulRLGenerator(SkyRLGymGenerator):
                 "temperature": sampling_params.get("temperature", 0.7),
                 "max_tokens": max_tokens,
                 "timeout": int(self.polling_config["timeout"]),
-                "metadata": {
-                    "trajectory_id": str(trajectory_id),
-                    "global_step": batch_metadata.global_step,
-                    "training_phase": batch_metadata.training_phase,
-                },
+                "metadata": rollout_metadata,
             }
             
             print(f"[EzVulRLGenerator] Submitting rollout: {request['cve_id']}")
