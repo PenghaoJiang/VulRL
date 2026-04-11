@@ -35,6 +35,23 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "worker_router"))
 from .types import RolloutRequest, TrajectoryStep
 
 
+def _resolved_max_steps(env_extras: Dict[str, Any], default: int = 10) -> int:
+    ec = env_extras.get("env_config")
+    if isinstance(ec, str) and ec.strip():
+        try:
+            ec = json.loads(ec)
+        except json.JSONDecodeError:
+            ec = {}
+    ec = ec if isinstance(ec, dict) else {}
+    for v in (ec.get("max_steps"), env_extras.get("max_steps")):
+        if v is not None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+    return default
+
+
 class EzVulRLGenerator(SkyRLGymGenerator):
     """
     Generator that delegates VulRL rollouts to Worker Router API.
@@ -135,8 +152,8 @@ class EzVulRLGenerator(SkyRLGymGenerator):
             batch_metadata: Batch metadata (global_step, training_phase, etc.)
             
         Returns:
-            Tuple of (response_ids, reward, stop_reason, loss_mask, prompt_ids, rollout_logprobs)
-            Returns (None, None, None, None, None, None) on failure
+            Tuple of (response_ids, reward, stop_reason, loss_mask, prompt_ids, rollout_logprobs).
+            On failure returns ``None`` tuples; ``generate()`` maps those to TerminalBench-style placeholders.
         """
         try:
             # Extract prompt text
@@ -176,7 +193,7 @@ class EzVulRLGenerator(SkyRLGymGenerator):
                 "prompt": prompt_text,
                 "llm_endpoint": self.llm_endpoint,
                 "model_name": self.llm_model_name,
-                "max_steps": env_extras.get("max_steps", 10),
+                "max_steps": _resolved_max_steps(env_extras),
                 "temperature": sampling_params.get("temperature", 0.7),
                 "max_tokens": max_tokens,
                 "timeout": int(self.polling_config["timeout"]),
@@ -387,21 +404,19 @@ class EzVulRLGenerator(SkyRLGymGenerator):
         
         # Execute all tasks in parallel
         all_outputs = await asyncio.gather(*tasks)
-        
-        # Filter out None entries (failed trajectories)
-        responses = [output[0] for output in all_outputs if output[0] is not None]
-        rewards = [output[1] for output in all_outputs if output[0] is not None]
-        stop_reasons = [output[2] for output in all_outputs if output[0] is not None]
-        loss_masks = [output[3] for output in all_outputs if output[0] is not None]
-        prompt_token_ids = [output[4] for output in all_outputs if output[0] is not None]
-        
-        if not responses:
-            raise ValueError(
-                "Found no valid responses for this step. This means that generation "
-                "failed for all trajectories, likely due to Worker Router issues."
-            )
-        
-        print(f"[EzVulRLGenerator] Generated {len(responses)}/{len(prompts)} valid trajectories")
+        # TerminalBench-style: failed rollouts become dummy tokens + loss_mask 0 (no grad), reward 0
+        normalized = [
+            o if o[0] is not None else ([0], 0.0, "error", [0], [0], None)
+            for o in all_outputs
+        ]
+        responses = [output[0] for output in normalized]
+        rewards = [output[1] for output in normalized]
+        stop_reasons = [output[2] for output in normalized]
+        loss_masks = [output[3] for output in normalized]
+        prompt_token_ids = [output[4] for output in normalized]
+
+        n_ok = sum(1 for o in all_outputs if o[0] is not None)
+        print(f"[EzVulRLGenerator] Generated {n_ok}/{len(prompts)} valid trajectories ({len(prompts) - n_ok} failed → zero loss)")
         
         # Calculate rollout metrics
         rollout_metrics = get_rollout_metrics(responses, rewards)
