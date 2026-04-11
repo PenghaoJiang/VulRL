@@ -57,10 +57,11 @@ WORKER_ROUTER_URL="http://localhost:12345"  # Hardcoded (for display only)
 TRAIN_DATA="${TRAIN_DATA:-/data1/jph/VulRL/SkyRL/skyrl-train/vulrl_inside_skyrl/train.parquet}"
 
 # Training parameters - MINIMAL FOR TESTING
-EPOCHS="${EPOCHS:-1}"                      # 1 epoch
-TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-3}" # 3 parallel tasks
-EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-3}"   # 3 parallel eval tasks
-MAX_STEPS="${MAX_STEPS:-10}"              # Max steps per rollout
+EPOCHS="${EPOCHS:-1}"                             # 1 epoch -> number of generations of llm
+N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-2}" # 1 sample per prompt -> number of same cases per epoch
+TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-3}"         # 3 parallel tasks -> number of parallel tasks per generator loop
+EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-4}"           # 3 parallel eval tasks
+MAX_STEPS="${MAX_STEPS:-10}"                      # Max steps per rollout
 LEARNING_RATE="${LEARNING_RATE:-1e-6}"
 
 # System configuration (from run_training.sh)
@@ -301,7 +302,7 @@ uv run --extra vllm \
   generator.http_endpoint_port=17777 \
   generator.async_engine=true \
   generator.batched=true \
-  generator.n_samples_per_prompt=1 \
+  generator.n_samples_per_prompt="$N_SAMPLES_PER_PROMPT" \
   generator.gpu_memory_utilization="$GPU_MEMORY_UTILIZATION" \
   trainer.logger="$LOGGER" \
   trainer.project_name="$PROJECT_NAME" \
