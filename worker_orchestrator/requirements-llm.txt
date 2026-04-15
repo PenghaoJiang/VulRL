@@ -2,4 +2,5 @@
 
 # Install with: pip install -r requirements-llm.txt --no-cache-dir
 
-vllm>=0.6.0
+# Pinned to match worker_orchestrator venv (CUDA stack); bump when upgrading venv
+vllm==0.17.0

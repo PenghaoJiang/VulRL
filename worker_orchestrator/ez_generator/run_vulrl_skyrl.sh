@@ -10,9 +10,9 @@ set -e  # Exit on error
 # 3. Launches SkyRL training with EzVulRLGenerator (Worker Router based)
 #
 # IMPORTANT PREREQUISITE:
-#   Worker Router MUST be running at http://localhost:5000 (hardcoded)
+#   Worker Router MUST be running at http://localhost:12345 (hardcoded in WorkerRouterClient)
 #   If running on a remote machine, use SSH port forwarding:
-#     ssh -L 5000:remote-host:5000 remote-host
+#     ssh -L 12345:remote-host:12345 remote-host
 #
 # Usage:
 #   bash run_vulrl_skyrl.sh
@@ -60,7 +60,7 @@ TRAIN_DATA="${TRAIN_DATA:-/data1/jph/VulRL/SkyRL/skyrl-train/vulrl_inside_skyrl/
 EPOCHS="${EPOCHS:-1}"                             # 1 epoch -> number of generations of llm
 N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-2}" # 1 sample per prompt -> number of same cases per epoch
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-3}"         # 3 parallel tasks -> number of parallel tasks per generator loop
-EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-4}"           # 3 parallel eval tasks
+EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-4}"           # 3 parallel eval tasks 
 MAX_STEPS="${MAX_STEPS:-10}"                      # Max steps per rollout
 LEARNING_RATE="${LEARNING_RATE:-1e-6}"
 

