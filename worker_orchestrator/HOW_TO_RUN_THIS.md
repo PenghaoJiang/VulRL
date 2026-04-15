@@ -86,30 +86,21 @@ bash worker_orchestrator/start_worker_router.sh
 
 （需已安装 `uv`。）启动前可在 **编辑脚本** 或 **在运行前导出环境变量** 的方式调整下列变量（带 `${VAR:-默认值}` 的项支持用环境变量覆盖默认值；脚本里写死赋值的项只能改脚本）。
 
-`worker_orchestrator/ez_generator/run_vulrl_skyrl.sh` 中的变量一览：
+`worker_orchestrator/ez_generator/run_vulrl_skyrl.sh` 中的变量一览（更换机器后可能需要更改）：
+
+PS: 换机器后 ctrl+F 查找所有 "/data1/jph/"，替换为本repo的path
 
 | 变量名 | 含义 / 备注 |
 |--------|-------------|
-| `MODEL_PATH` | 本地模型目录；可用环境变量覆盖，默认见脚本 |
+| `MODEL_PATH` | 本地模型目录；可用环境变量覆盖，默认见脚本 | 需要自己下载一个
 | `MODEL_NAME` | 无本地模型时用作 HuggingFace 名；可用环境变量覆盖 |
-| `WORKER_ROUTER_URL` | 仅用于 `echo` 展示；真实地址在 `WorkerRouterClient` 中写死为 `http://localhost:12345` |
-| `TRAIN_DATA` | 训练 parquet 路径；可用环境变量覆盖 |
+| `TRAIN_DATA` | 训练 parquet 路径；可用环境变量覆盖 | 建议用abs path： dataset\combined_parquet\train_combined.parquet
 | `EPOCHS` | 训练 epoch 数 |
 | `N_SAMPLES_PER_PROMPT` | 每 prompt 采样数 |
 | `TRAIN_BATCH_SIZE` | 训练 batch |
 | `EVAL_BATCH_SIZE` | 评估 batch |
-| `MAX_STEPS` | 单条 rollout 最大步数（传入 `generator.max_turns`） |
-| `LEARNING_RATE` | 学习率 |
 | `NUM_GPUS` | 每节点 policy/ref GPU 数及本地 vLLM 引擎数等 |
 | `CHECKPOINT_DIR` | checkpoint 目录 |
-| `GPU_MEMORY_UTILIZATION` | 本地 vLLM `gpu_memory_utilization`（脚本内为普通赋值，非 `${…:-}`） |
-| `LOGGER` | 日志后端：`local` / `wandb` / `tensorboard`（脚本内默认 `wandb`） |
-| `PROJECT_NAME` | 实验项目名 |
-| `RUN_NAME` | 单次运行名（默认带时间戳） |
-| `WORKER_ORCHESTRATOR_PATH` | `worker_orchestrator` 根路径（脚本内写死，需改成你的仓库路径） |
-| `EZ_GENERATOR_PATH` | 由 `WORKER_ORCHESTRATOR_PATH/ez_generator` 派生 |
-| `SKYRL_PATH` | `skyrl-train` 根目录（脚本内写死） |
-| `VULRL_INSIDE_SKYRL_PATH` | 同步 `ez_generator` 代码的目标目录，默认 `SKYRL_PATH/vulrl_inside_skyrl_v2` |
 
 脚本运行过程中还会设置或依赖：
 
