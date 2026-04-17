@@ -23,7 +23,8 @@ bash /data1/jph/VulRL/vulhub_oracle_and_test/run_oracle_and_test.sh \
 | `KEEP_RUNNING=1` | 退出后不销毁 compose 与攻击机容器（调试用）。 |
 | `STARTUP_SLEEP` | `compose up` 后等待秒数（默认 `8`）。 |
 
-进程最终以 **`oracle_test.sh` 的退出码** 退出（仅允许 `0` 或 `1`，其它视为错误）。会打印 `ORACLE_TEST_RESULT=<0|1>`。
+**退出码：** `oracle_test.sh` 在主机上执行 **两次**：在 **`oracle_solution.sh` 之前**（期望 **`1`**，尚不可观察）与 **之后**（期望 **`0`**）。包装脚本以 **第二次（post）的退出码** 作为进程退出码（`0` 成功，`1` 表示利用效果未观察到）。若 **第一次** 不是 **`1`**，进程以 **`2`** 退出（多为环境未净或测试脚本过弱）。其它非 `0/1` 的测试退出码按错误原样退出。
+会打印 `ORACLE_TEST_PRE=<pre> ORACLE_TEST_POST=<post>`。
 
 ---
 
@@ -53,7 +54,7 @@ bash /data1/jph/VulRL/vulhub_oracle_and_test/run_oracle_and_test.sh \
 ## `oracle_test.sh` — 内容、执行位置与方式
 
 - **位置：** 同上，主机案例目录。
-- **执行方式：** 在主机上 **`cd` 到案例目录后执行 `bash ./oracle_test.sh`**。
+- **执行方式：** 在主机上 **`cd` 到案例目录后执行 `bash ./oracle_test.sh`**。包装脚本会调用 **两次**（参考解前后）；典型“标记文件”类用例期望先 **`1`** 后 **`0`**。
 - **用途：** 判断参考解产生的效果能否在 **目标容器** 中被观察到；通过主机上的 **`docker exec` 进入目标**，例如：
 
   `docker exec "$TARGET_CONTAINER" …`
@@ -68,6 +69,7 @@ bash /data1/jph/VulRL/vulhub_oracle_and_test/run_oracle_and_test.sh \
 
 1. 为案例目录执行带独立项目名的 `docker compose up`。  
 2. 在目标所在 compose 网络上启动攻击机容器。  
-3. 用 `docker exec -i` 在攻击机内执行 **`oracle_solution.sh`**。  
-4. 在主机执行 **`oracle_test.sh`**（内部用 `docker exec` 检查 **`TARGET_CONTAINER`**）。  
-5. 除非 `KEEP_RUNNING=1`，否则销毁攻击机并 `compose down -v`。
+3. 在主机执行 **`oracle_test.sh` 第 1 次**（期望退出 **`1`**，如标记文件尚不存在）。  
+4. 用 `docker exec -i` 在攻击机内执行 **`oracle_solution.sh`**。  
+5. 在主机执行 **`oracle_test.sh` 第 2 次**（期望退出 **`0`**）。  
+6. 除非 `KEEP_RUNNING=1`，否则销毁攻击机并 `compose down -v`。

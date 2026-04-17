@@ -23,7 +23,8 @@ bash /data1/jph/VulRL/vulhub_oracle_and_test/run_oracle_and_test.sh \
 | `KEEP_RUNNING=1` | Leave compose stack and attacker container up after exit (debug). |
 | `STARTUP_SLEEP` | Seconds to wait after `compose up` (default `8`). |
 
-The process **exits with the same code** as `oracle_test.sh` (`0` or `1` only; other codes are treated as errors). It prints `ORACLE_TEST_RESULT=<0|1>`.
+**Exit codes:** `oracle_test.sh` is run **twice** on the host: **before** `oracle_solution.sh` (expect **`1`**, not yet observable) and **after** (expect **`0`**). The wrapper exits with **`post_rc`** (same as a single post-run: `0` = success, `1` = exploit effect not observed). If the pre-run does not return **`1`**, the wrapper exits **`2`** (usually a dirty environment or a bad test). Any other `oracle_test.sh` exit code is propagated as an error.
+It prints `ORACLE_TEST_PRE=<pre> ORACLE_TEST_POST=<post>`.
 
 ---
 
@@ -53,7 +54,7 @@ Place **`oracle_solution.sh`** and **`oracle_test.sh`** next to that case’s `d
 ## `oracle_test.sh` — what it is, where it runs
 
 - **Location:** same case directory on the host.
-- **How it runs:** **`bash ./oracle_test.sh` on the host**, with working directory set to the case folder.
+- **How it runs:** **`bash ./oracle_test.sh` on the host**, with working directory set to the case folder. The wrapper invokes it **twice** (before and after `oracle_solution.sh`); for typical “marker file” checks, expect **exit `1`** then **exit `0`**.
 - **Purpose:** check whether the solution’s effects are visible **inside the target container** (or via its filesystem/process state). Use host `docker` to reach the target, for example:
 
   `docker exec "$TARGET_CONTAINER" …`
@@ -68,6 +69,7 @@ Place **`oracle_solution.sh`** and **`oracle_test.sh`** next to that case’s `d
 
 1. `docker compose up` for the case with an isolated project name.  
 2. Start attacker on the target’s compose network.  
-3. Run `oracle_solution.sh` **in** the attacker (via `docker exec -i`).  
-4. Run `oracle_test.sh` **on** the host (it uses `docker exec` into **`TARGET_CONTAINER`** as needed).  
-5. Tear down attacker and `compose down -v` unless `KEEP_RUNNING=1`.
+3. Run `oracle_test.sh` **#1** on the host (expect **fail** / exit **`1`** for marker-style checks).  
+4. Run `oracle_solution.sh` **in** the attacker (via `docker exec -i`).  
+5. Run `oracle_test.sh` **#2** on the host (expect **pass** / exit **`0`**).  
+6. Tear down attacker and `compose down -v` unless `KEEP_RUNNING=1`.

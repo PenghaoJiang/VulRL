@@ -8,8 +8,8 @@
 # Expects in the case directory:
 #   - oracle_solution.sh   — file is read on the host; execution is *inside* the attacker
 #     via `docker exec -i … bash -s < oracle_solution.sh` (same tools/network as attacker).
-#   - oracle_test.sh       — runs on the *host*; use `docker exec "$TARGET_CONTAINER" …`
-#     to assert state inside the vulhub target (exit 0 = observable, exit 1 = not).
+#   - oracle_test.sh       — runs on the *host* twice: before solution (expect exit 1)
+#     and after (expect exit 0). Same script, same 0/1 semantics as the case README.
 #
 # Env passed into the attacker for oracle_solution.sh (docker exec -e):
 #   TARGET_CONTAINER, TARGET_CONTAINER_ID, COMPOSE_PROJECT_NAME, ATTACKER_CONTAINER
@@ -158,29 +158,49 @@ docker_exec_attacker_env=(
   -e "ATTACKER_CONTAINER=$ATTACKER_NAME"
 )
 
+run_host_oracle_test() {
+  (
+    export TARGET_CONTAINER="$TARGET_NAME"
+    export TARGET_CONTAINER_ID="$TARGET_CID"
+    export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME"
+    export ATTACKER_CONTAINER="$ATTACKER_NAME"
+    export ORACLE_CASE_DIR="$VULHUB_CASE_DIR"
+    cd "$VULHUB_CASE_DIR"
+    bash ./oracle_test.sh
+  )
+}
+
+validate_oracle_test_rc() {
+  local phase="$1" rc="$2"
+  if [[ "$rc" != "0" && "$rc" != "1" ]]; then
+    echo "Error: ${phase}: oracle_test.sh must exit 0 or 1, got $rc" >&2
+    exit "$rc"
+  fi
+}
+
+echo "[run_oracle_and_test] oracle_test.sh #1 (before solution; expect exit 1 = not yet observable) ..."
+set +e
+run_host_oracle_test
+pre_rc=$?
+set -e
+validate_oracle_test_rc "pre-solution" "$pre_rc"
+if [[ "$pre_rc" != "1" ]]; then
+  echo "Error: pre-solution oracle_test.sh expected exit 1 (not observable), got $pre_rc" >&2
+  echo "  (Often: marker already present — dirty volume/image — or oracle_test is too weak.)" >&2
+  exit 2
+fi
+
 echo "[run_oracle_and_test] running oracle_solution.sh (host file → docker exec -i attacker bash -s) ..."
 docker exec -i "${docker_exec_attacker_env[@]}" "$ATTACKER_NAME" bash -s \
   -- <"$VULHUB_CASE_DIR/oracle_solution.sh"
 
-echo "[run_oracle_and_test] running oracle_test.sh on host (use docker exec \"\$TARGET_CONTAINER\" …) ..."
+echo "[run_oracle_and_test] oracle_test.sh #2 (after solution; expect exit 0 = observable) ..."
 set +e
-(
-  export TARGET_CONTAINER="$TARGET_NAME"
-  export TARGET_CONTAINER_ID="$TARGET_CID"
-  export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME"
-  export ATTACKER_CONTAINER="$ATTACKER_NAME"
-  export ORACLE_CASE_DIR="$VULHUB_CASE_DIR"
-  cd "$VULHUB_CASE_DIR"
-  bash ./oracle_test.sh
-)
-test_rc=$?
+run_host_oracle_test
+post_rc=$?
 set -e
+validate_oracle_test_rc "post-solution" "$post_rc"
 
-if [[ "$test_rc" != "0" && "$test_rc" != "1" ]]; then
-  echo "Error: oracle_test.sh must exit 0 or 1, got $test_rc" >&2
-  exit "$test_rc"
-fi
+echo "[run_oracle_and_test] ORACLE_TEST_PRE=${pre_rc} ORACLE_TEST_POST=${post_rc}"
 
-echo "[run_oracle_and_test] ORACLE_TEST_RESULT=$test_rc"
-
-exit "$test_rc"
+exit "$post_rc"
