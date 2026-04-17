@@ -9,3 +9,9 @@ bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CV
 bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/erlang/CVE-2025-32433
 bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/flask/ssti
 bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17518
+bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/geoserver/CVE-2024-36401
+bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/gitlab/CVE-2021-22205
+bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/gitlist/CVE-2018-1000533
+bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/hadoop/unauthorized-yarn
+bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-41773
+bash ./run_oracle_and_test.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-42013
