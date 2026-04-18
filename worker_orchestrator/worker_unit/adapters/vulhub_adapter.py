@@ -394,3 +394,122 @@ CMD ["tail", "-f", "/dev/null"]
                 pass  # Container doesn't exist
             except Exception as e:
                 print(f"[VulhubAdapter] Warning: Failed to remove {container_name}: {e}")
+
+    def execute_oracle_solution(self) -> bool:
+        """
+        Execute oracle_solution.sh inside the attacker container.
+        
+        Mirrors run_oracle_and_test.sh: reads oracle_solution.sh from host,
+        streams it to attacker container via docker exec -i bash -s.
+        
+        Returns:
+            True if execution succeeded, False otherwise
+        """
+        oracle_solution_path = self.compose_path / "oracle_solution.sh"
+        
+        if not oracle_solution_path.exists():
+            print(f"[VulhubAdapter] oracle_solution.sh not found: {oracle_solution_path}")
+            return False
+        
+        if not self.attacker_container_obj:
+            print(f"[VulhubAdapter] Attacker container not started")
+            return False
+        
+        print(f"[VulhubAdapter] Executing oracle_solution.sh in attacker container...")
+        
+        # Build environment variables for docker exec
+        env_dict = {
+            "TARGET_CONTAINER": self.target_container_name or "",
+            "TARGET_CONTAINER_ID": self.target_container_obj.id if self.target_container_obj else "",
+            "COMPOSE_PROJECT_NAME": self.project_name or "",
+            "ATTACKER_CONTAINER": self.attacker_container_name or "",
+        }
+        
+        # Build docker exec command with env vars
+        docker_exec_cmd = ["docker", "exec", "-i"]
+        for key, value in env_dict.items():
+            docker_exec_cmd.extend(["-e", f"{key}={value}"])
+        docker_exec_cmd.extend([self.attacker_container_name, "bash", "-s", "--"])
+        
+        try:
+            # Stream oracle_solution.sh to docker exec stdin
+            with open(oracle_solution_path, "rb") as f:
+                result = subprocess.run(
+                    docker_exec_cmd,
+                    stdin=f,
+                    capture_output=True,
+                    timeout=120
+                )
+            
+            if result.returncode == 0:
+                print(f"[VulhubAdapter] oracle_solution.sh completed successfully")
+                if result.stdout:
+                    print(f"[VulhubAdapter] stdout: {result.stdout.decode('utf-8', errors='ignore')}")
+                return True
+            else:
+                print(f"[VulhubAdapter] oracle_solution.sh failed with exit code {result.returncode}")
+                if result.stderr:
+                    print(f"[VulhubAdapter] stderr: {result.stderr.decode('utf-8', errors='ignore')}")
+                return False
+        
+        except subprocess.TimeoutExpired:
+            print(f"[VulhubAdapter] oracle_solution.sh timed out")
+            return False
+        except Exception as e:
+            print(f"[VulhubAdapter] Error executing oracle_solution.sh: {e}")
+            return False
+
+    def execute_oracle_test(self) -> int:
+        """
+        Execute oracle_test.sh on the host.
+        
+        Runs oracle_test.sh with proper environment variables to verify
+        if the exploit succeeded.
+        
+        Returns:
+            Exit code from oracle_test.sh (0 = success, 1 = failure, other = error)
+        """
+        oracle_test_path = self.compose_path / "oracle_test.sh"
+        
+        if not oracle_test_path.exists():
+            print(f"[VulhubAdapter] oracle_test.sh not found: {oracle_test_path}")
+            return 2  # Error code
+        
+        print(f"[VulhubAdapter] Executing oracle_test.sh on host...")
+        
+        # Build environment variables for oracle_test.sh (host execution)
+        env_vars = {
+            "TARGET_CONTAINER": self.target_container_name or "",
+            "TARGET_CONTAINER_ID": self.target_container_obj.id if self.target_container_obj else "",
+            "COMPOSE_PROJECT_NAME": self.project_name or "",
+            "ATTACKER_CONTAINER": self.attacker_container_name or "",
+            "ORACLE_CASE_DIR": str(self.compose_path.resolve()),
+        }
+        
+        try:
+            # Run oracle_test.sh on host
+            result = subprocess.run(
+                ["bash", str(oracle_test_path)],
+                cwd=str(self.compose_path),
+                env={**subprocess.os.environ, **env_vars},
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            exit_code = result.returncode
+            print(f"[VulhubAdapter] oracle_test.sh exit code: {exit_code}")
+            
+            if result.stdout:
+                print(f"[VulhubAdapter] oracle_test.sh stdout:\n{result.stdout}")
+            if result.stderr:
+                print(f"[VulhubAdapter] oracle_test.sh stderr:\n{result.stderr}")
+            
+            return exit_code
+        
+        except subprocess.TimeoutExpired:
+            print(f"[VulhubAdapter] oracle_test.sh timed out")
+            return 2  # Error code
+        except Exception as e:
+            print(f"[VulhubAdapter] Error executing oracle_test.sh: {e}")
+            return 2  # Error code
