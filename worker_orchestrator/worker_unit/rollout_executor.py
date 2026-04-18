@@ -173,47 +173,82 @@ class RolloutExecutor:
             
             print(f"[RolloutExecutor] Initial observation: {observation_str[:200]}...")
             
-            # 4. Create and run agent
-            print(f"[RolloutExecutor] Creating agent (type: {agent_type})...")
-
-            if agent_type == "demo":
-                agent = DemoAgent(
-                    env=env,
-                    llm_client=llm_client,
-                    config={
-                        "model_name": request.model_name,
-                        "temperature": request.temperature,
-                        "max_tokens": request.max_tokens,
-                    },
-                )
-            elif agent_type == "ctf":
-                agent = CTFAgent(
-                    env=env.adapter,
-                    llm_client=llm_client,
-                    config={
-                        "model_name": request.model_name,
-                        "temperature": request.temperature,
-                        "max_tokens": request.max_tokens,
-                        "step_limit": request.max_steps,
-                        "config_file": request.metadata.get("agent_config_file"),
-                    },
-                )
+            # 4. Check if oracle mode is enabled
+            is_oracle = request.metadata.get("is_oracle", False)
+            
+            if is_oracle:
+                print(f"[RolloutExecutor] Oracle mode enabled - executing oracle_solution.sh...")
+                
+                # Execute oracle solution instead of using agent
+                if task_type == "vulhub" and hasattr(env.adapter, "execute_oracle_solution"):
+                    success = env.adapter.execute_oracle_solution()
+                    if success:
+                        print(f"[RolloutExecutor] Oracle solution executed successfully")
+                    else:
+                        print(f"[RolloutExecutor] Oracle solution execution failed")
+                    
+                    # Create a minimal trajectory for oracle execution
+                    from worker_unit.agent.base_agent import TrajectoryStep
+                    trajectory = [
+                        TrajectoryStep(
+                            step=0,
+                            observation=observation_str,
+                            action="[Oracle solution executed]",
+                            reward=0.0,
+                            done=False,
+                            metadata={"oracle_mode": True}
+                        )
+                    ]
+                else:
+                    raise ValueError(f"Oracle mode not supported for task_type: {task_type}")
             else:
-                raise ValueError(f"Unknown agent_type: {agent_type}")
+                # 4. Create and run agent (normal mode)
+                print(f"[RolloutExecutor] Creating agent (type: {agent_type})...")
 
-            print(f"[RolloutExecutor] Starting {agent.get_name()}...")
-            trajectory = await agent.run(
-                initial_prompt=request.prompt,
-                max_steps=request.max_steps,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-            )
-            print(f"[RolloutExecutor] Agent completed: {len(trajectory)} steps")
+                if agent_type == "demo":
+                    agent = DemoAgent(
+                        env=env,
+                        llm_client=llm_client,
+                        config={
+                            "model_name": request.model_name,
+                            "temperature": request.temperature,
+                            "max_tokens": request.max_tokens,
+                        },
+                    )
+                elif agent_type == "ctf":
+                    agent = CTFAgent(
+                        env=env.adapter,
+                        llm_client=llm_client,
+                        config={
+                            "model_name": request.model_name,
+                            "temperature": request.temperature,
+                            "max_tokens": request.max_tokens,
+                            "step_limit": request.max_steps,
+                            "config_file": request.metadata.get("agent_config_file"),
+                        },
+                    )
+                else:
+                    raise ValueError(f"Unknown agent_type: {agent_type}")
+
+                print(f"[RolloutExecutor] Starting {agent.get_name()}...")
+                trajectory = await agent.run(
+                    initial_prompt=request.prompt,
+                    max_steps=request.max_steps,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                )
+                print(f"[RolloutExecutor] Agent completed: {len(trajectory)} steps")
 
             traj_dicts = _trajectory_to_dicts(trajectory)
 
             # 5–6. Reward, then teardown for cvebench (needs live /done); vulhub closes first (offline BLEU)
+            # For vulhub_rce, compute reward BEFORE teardown (needs live containers for oracle_test)
             print("[RolloutExecutor] Computing rewards...")
+            
+            # Allow reward_type override from metadata (e.g., "vulhub_rce" instead of "vulhub")
+            reward_type = request.metadata.get("reward_type", task_type)
+            print(f"[RolloutExecutor] Using reward_type: {reward_type}")
+            
             if task_type == "cvebench":
                 reward_config = {
                     "attacker_container_name": getattr(
@@ -238,7 +273,30 @@ class RolloutExecutor:
                 if env:
                     env.close()
                     print("[RolloutExecutor] Environment closed")
+            elif reward_type == "vulhub_rce":
+                # Compute reward BEFORE teardown (needs live containers)
+                reward_config = {
+                    "adapter": env.adapter,
+                    "vulhub_base_path": getattr(env.adapter, "compose_path", Path()).parent.parent if hasattr(env.adapter, "compose_path") else "",
+                    "vulhub_path": request.vulhub_path,
+                    "case_dir": str(env.adapter.compose_path) if hasattr(env.adapter, "compose_path") else "",
+                }
+                reward_calculator = RewardCalculator(
+                    task_type="vulhub_rce",
+                    config=reward_config,
+                )
+                reward_task_id = request.vulhub_path or request.cve_id
+                total_reward = reward_calculator.compute_episode_reward(
+                    trajectory=traj_dicts,
+                    task_id=reward_task_id,
+                )
+                print(f"[RolloutExecutor] Total reward: {total_reward}")
+                # Teardown AFTER reward computation
+                if env:
+                    env.close()
+                    print("[RolloutExecutor] Environment closed")
             else:
+                # Other task types: teardown first, then compute reward
                 if env:
                     env.close()
                     print("[RolloutExecutor] Environment closed")
