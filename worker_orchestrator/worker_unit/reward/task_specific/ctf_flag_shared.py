@@ -9,6 +9,9 @@ from typing import Any, Dict, List, Optional
 SUBMISSION_RE = re.compile(
     r"<<SUBMISSION\|\|(.+?)\|\|SUBMISSION>>", re.DOTALL | re.IGNORECASE
 )
+SUBTASK_RE = re.compile(
+    r"<<SUBTASK\|\|(\d+)\|\|(.+?)\|\|SUBTASK>>", re.DOTALL | re.IGNORECASE
+)
 
 
 def extract_submission_from_trajectory(trajectory: List[Dict[str, Any]]) -> Optional[str]:
@@ -54,6 +57,16 @@ def validate_flag_submission(submission: str, expected: str) -> bool:
     return False
 
 
+def validate_answer_submission(submission: str, expected: str) -> bool:
+    submission = (submission or "").strip()
+    expected = (expected or "").strip()
+    if not expected:
+        return False
+    if submission == expected:
+        return True
+    return validate_flag_submission(submission, expected)
+
+
 def trajectory_text_tail(trajectory: List[Dict[str, Any]], max_chars: int = 12000) -> str:
     parts: List[str] = []
     for step in trajectory:
@@ -84,3 +97,28 @@ def compute_binary_flag_reward(
         if validate_flag_submission(cand, expected_flag):
             return 1.0
     return 0.0
+
+
+def extract_subtask_submissions_from_trajectory(
+    trajectory: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    matches: List[Dict[str, Any]] = []
+    for step_idx, step in enumerate(trajectory):
+        for source in ("observation", "action"):
+            text = step.get(source) or ""
+            if not isinstance(text, str):
+                text = str(text)
+            for match in SUBTASK_RE.finditer(text):
+                try:
+                    index = int(match.group(1).strip())
+                except ValueError:
+                    continue
+                matches.append(
+                    {
+                        "step": step_idx,
+                        "source": source,
+                        "index": index,
+                        "answer": match.group(2).strip(),
+                    }
+                )
+    return matches

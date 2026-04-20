@@ -46,7 +46,7 @@ INTERACTIVE_SESSIONS_CONFIG = {
         quit_commands_in_session=["quit"],
     ),
     "connect": InteractiveSessionConfig(
-        cmdline="root/commands/_connect.py",
+        cmdline="/root/commands/_connect.py",
         terminal_prompt_pattern="(nc) ",
         start_command="connect_start",
         exit_command="connect_stop",
