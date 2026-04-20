@@ -225,11 +225,12 @@
 
 **HIGH PRIORITY - Very Practical:**
 /data1/jph/VulRL/benchmark/vulhub/struts2/s2-045 => done ✓
-/data1/jph/VulRL/benchmark/vulhub/struts2/s2-046 => similar to s2-045, not implemented
+/data1/jph/VulRL/benchmark/vulhub/struts2/s2-046 => not implemented
 /data1/jph/VulRL/benchmark/vulhub/spring/CVE-2022-22965 => Spring4Shell (multi-step JSP write, not implemented)
 /data1/jph/VulRL/benchmark/vulhub/thinkphp/5-rce => done ✓
 /data1/jph/VulRL/benchmark/vulhub/tomcat/CVE-2017-12615 => done ✓
 /data1/jph/VulRL/benchmark/vulhub/weblogic/CVE-2017-10271 => done ✓
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => error-based SQLi only, Django ORM blocks stacked queries
 
 **MEDIUM PRIORITY - Somewhat Practical:**
 /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2019-17558 => needs evaluation
