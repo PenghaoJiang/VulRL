@@ -32,6 +32,10 @@ from .ctfmix.runtime_utils import (
 import logging
 logger = logging.getLogger(__name__)
 
+SUBTASK_MARKER_RE = re.compile(
+    r"<<SUBTASK\|\|(\d+)\|\|(.+?)\|\|SUBTASK>>", re.DOTALL | re.IGNORECASE
+)
+
 
 class VulhubRuntimeAdapter:
     """
@@ -82,6 +86,9 @@ class VulhubRuntimeAdapter:
         )
         time.sleep(0.1)  # Let bash initialize
         logger.info("Persistent bash session established")
+        # Script-style helper commands are copied into /root/commands. Export that
+        # directory once here so wrappers like decompile/disassemble are callable.
+        self._communicate_simple("mkdir -p /root/commands && export PATH=/root/commands:$PATH")
     
     def communicate(
         self,
@@ -212,9 +219,18 @@ class VulhubRuntimeAdapter:
         if action == "exit_forfeit":
             info["exit_status"] = "exit_forfeit"
             return "Exited", 0, True, info
+        if action.startswith("submit_subtask"):
+            print(f"[VulhubRuntimeAdapter] Executing subtask submission command: {action}")
         
         # Execute action
         observation = self.communicate(action, timeout_duration=25, set_last_action=True)
+        for match in SUBTASK_MARKER_RE.finditer(observation):
+            subtask_index = match.group(1).strip()
+            subtask_answer = match.group(2).strip()
+            print(
+                "[VulhubRuntimeAdapter] Detected submit_subtask marker: "
+                f"index={subtask_index} answer={subtask_answer!r}"
+            )
         
         # Check for submission (CTFMix feature - looks for <<SUBMISSION||flag||SUBMISSION>>)
         submission = self.get_submission(observation)

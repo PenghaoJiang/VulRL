@@ -123,6 +123,7 @@ $RECYCLE.BIN/
 htmlcov/
 .tox/
 .nox/
+worker_orchestrator/test/output/
 
 # MyPy
 .mypy_cache/

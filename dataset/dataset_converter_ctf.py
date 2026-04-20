@@ -84,7 +84,88 @@ def _load_challenge(challenge_dir: Path) -> Dict[str, Any]:
         return {}
 
 
-def _build_prompt_messages(data: Dict[str, Any], rel_path: str) -> List[Dict[str, str]]:
+def _load_cybench_metadata(challenge_dir: Path) -> Dict[str, Any]:
+    metadata_path = challenge_dir / "metadata" / "metadata.json"
+    if not metadata_path.is_file():
+        return {}
+    try:
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _normalize_cybench_subtasks(metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for idx, subtask in enumerate(metadata.get("subtasks") or [], start=1):
+        if not isinstance(subtask, dict):
+            continue
+        rows.append(
+            {
+                "index": idx,
+                "title": str(subtask.get("subtask") or "").strip(),
+                "question": str(subtask.get("question") or "").strip(),
+                "answer": str(subtask.get("answer") or "").strip(),
+                "answer_format": str(subtask.get("answer_format") or "").strip(),
+                "hints": [
+                    str(h).strip()
+                    for h in (subtask.get("hints") or [])
+                    if str(h).strip()
+                ],
+                "commands": [
+                    str(cmd).strip()
+                    for cmd in (subtask.get("commands") or [])
+                    if str(cmd).strip()
+                ],
+                "context": str(subtask.get("context") or "").strip(),
+                "annotator_note": str(subtask.get("annotator_note") or "").strip(),
+            }
+        )
+    return rows
+
+
+def _build_cybench_subtask_prompt(subtasks: List[Dict[str, Any]]) -> str:
+    if not subtasks:
+        return ""
+    lines = [
+        "## Cybench Subtasks",
+        "Record each solved checkpoint with `submit_subtask <index> '<answer>'` as soon as you have evidence.",
+        "Only record a subtask when you are confident in the exact answer.",
+    ]
+    for subtask in subtasks:
+        idx = subtask.get("index", "?")
+        title = str(subtask.get("title") or "").strip()
+        question = str(subtask.get("question") or "").strip()
+        answer_format = str(subtask.get("answer_format") or "").strip() or "free-form"
+        prefix = f"{idx}. "
+        if title:
+            prefix += f"{title}: "
+        lines.append(f"{prefix}{question} (answer format: `{answer_format}`)")
+    return "\n".join(lines)
+
+
+def _build_challenge_info(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "name": str(data.get("name") or "").strip(),
+        "category": str(data.get("category") or "").strip(),
+        "description": str(data.get("description") or "").strip(),
+        "box": str(data.get("box") or "").strip(),
+        "internal_port": int(data.get("internal_port") or 80),
+        "target_host": str(data.get("target_host") or "").strip(),
+        "files": list(data.get("files") or []),
+        "flag_format": str(
+            data.get("flag_format") or data.get("answer_format") or "flag{...}"
+        ).strip(),
+        "expected_flag": str(data.get("flag") or "").strip(),
+        "points": data.get("points"),
+    }
+
+
+def _build_prompt_messages(
+    data: Dict[str, Any],
+    rel_path: str,
+    *,
+    cybench_subtasks: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, str]]:
     name = data.get("name") or rel_path.split("/")[-1] or "challenge"
     category = data.get("category") or "unknown"
     desc = (data.get("description") or "").strip() or "No description in challenge.json."
@@ -121,6 +202,9 @@ def _build_prompt_messages(data: Dict[str, Any], rel_path: str) -> List[Dict[str
         f"**Description**:\n{desc}\n\n"
         "Obtain the flag for this challenge."
     )
+    subtask_prompt = _build_cybench_subtask_prompt(cybench_subtasks or [])
+    if subtask_prompt:
+        user_msg += f"\n\n{subtask_prompt}"
     return [
         {"role": "system", "content": system_msg},
         {"role": "user", "content": user_msg},
@@ -185,13 +269,22 @@ def _build_metadata(
     challenge_relative_path: str,
     challenge_name: str,
     ctfmix_root: str,
+    challenge_info: Dict[str, Any],
+    cybench_subtasks: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    cybench_subtasks = list(cybench_subtasks or [])
     return {
         "task_id": task_id,
         "task_type": task_type,
         "challenge_relative_path": challenge_relative_path,
         "challenge_name": challenge_name,
         "ctfmix_root": ctfmix_root,
+        "challenge_info": challenge_info,
+        "expected_flag": challenge_info.get("expected_flag", ""),
+        "flag_format": challenge_info.get("flag_format", "flag{...}"),
+        "cybench_subtasks": cybench_subtasks,
+        "subtask_reward_weight": 0.1 if cybench_subtasks else 0.0,
+        "metadata_source": "parquet",
         "source": "dataset_converter_ctf",
     }
 
@@ -213,11 +306,20 @@ def _convert_one(
         raise FileNotFoundError(f"docker-compose.yml missing: {compose}")
 
     data = _load_challenge(challenge_dir)
+    cybench_metadata = (
+        _load_cybench_metadata(challenge_dir) if task_type == "cybench_docker" else {}
+    )
+    cybench_subtasks = _normalize_cybench_subtasks(cybench_metadata)
     raw_name = data.get("name") or rel_path.split("/")[-1]
     task_id = _allocate_task_id(str(raw_name), rel_path, seen_ids)
     desc = (data.get("description") or "").strip()
 
-    prompt_dict = _build_prompt_messages(data, rel_path)
+    challenge_info = _build_challenge_info(data)
+    prompt_dict = _build_prompt_messages(
+        data,
+        rel_path,
+        cybench_subtasks=cybench_subtasks,
+    )
     ctfmix_root_s = str(ctfmix_root.resolve())
     env_config_dict = _build_env_config(
         task_type=task_type,
@@ -235,7 +337,13 @@ def _convert_one(
         challenge_relative_path=rel_path,
         challenge_name=str(raw_name),
         ctfmix_root=ctfmix_root_s,
+        challenge_info=challenge_info,
+        cybench_subtasks=cybench_subtasks,
     )
+    if cybench_subtasks:
+        print(
+            f"[dataset_converter_ctf] {rel_path}: embedded {len(cybench_subtasks)} cybench subtasks into parquet metadata/prompt"
+        )
 
     return {
         "prompt": json.dumps(prompt_dict, ensure_ascii=False),

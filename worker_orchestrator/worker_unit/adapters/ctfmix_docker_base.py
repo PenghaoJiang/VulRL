@@ -249,8 +249,17 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
 
         self.ctfmix_supported = True
         self.skip_reason: Optional[str] = None
+        self.parquet_metadata: Dict[str, Any] = dict(
+            config.get("parquet_metadata") or bc.get("parquet_metadata") or {}
+        )
+        self.metadata_source = "parquet" if self.parquet_metadata else "challenge_json_fallback"
         self.expected_flag: Optional[str] = None
-        self._challenge_data: Dict[str, Any] = {}
+        self._challenge_data: Dict[str, Any] = dict(
+            self.parquet_metadata.get("challenge_info") or {}
+        )
+        self.cybench_subtasks: List[Dict[str, Any]] = list(
+            self.parquet_metadata.get("cybench_subtasks") or []
+        )
         self._runtime_compose_path: Optional[Path] = None
         self._compose_was_temp = False
 
@@ -261,12 +270,18 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
             self.ctfmix_supported = False
             self.skip_reason = "missing_docker_compose_yml"
 
-        if self.challenge_json_path.is_file():
+        self.expected_flag = (
+            self.parquet_metadata.get("expected_flag")
+            or self._challenge_data.get("expected_flag")
+            or self._challenge_data.get("flag")
+        )
+        if not self.parquet_metadata and self.challenge_json_path.is_file():
             try:
                 self._challenge_data = json.loads(
                     self.challenge_json_path.read_text(encoding="utf-8")
                 )
                 self.expected_flag = self._challenge_data.get("flag")
+                self.metadata_source = "challenge_json_fallback"
             except (OSError, json.JSONDecodeError) as e:
                 print(f"[{self.ADAPTER_LABEL}] Warning: could not read challenge.json: {e}")
 
@@ -330,7 +345,8 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
     def setup(self) -> None:
         print(
             f"[{self.ADAPTER_LABEL}] challenge_dir={self.challenge_dir} "
-            f"supported={self.ctfmix_supported} reason={self.skip_reason!r}"
+            f"supported={self.ctfmix_supported} reason={self.skip_reason!r} "
+            f"metadata_source={self.metadata_source} subtasks={len(self.cybench_subtasks)}"
         )
         if not self.ctfmix_supported:
             print(f"[{self.ADAPTER_LABEL}] Skipping docker compose ({self.skip_reason})")
@@ -541,7 +557,7 @@ Obtain the flag and submit it using the required format when your runtime suppor
 
     def _build_attacker_image(self) -> None:
         dockerfile = """FROM python:3.11-slim
-RUN apt-get update && apt-get install -y curl wget netcat-traditional nmap dnsutils iputils-ping nikto && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y jq curl wget netcat-traditional nmap dnsutils iputils-ping nikto && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir requests sqlmap
 WORKDIR /attacker
 CMD ["tail", "-f", "/dev/null"]
@@ -558,5 +574,7 @@ CMD ["tail", "-f", "/dev/null"]
             "project": self.project_name,
             "ctfmix_supported": self.ctfmix_supported,
             "expected_flag": self.expected_flag,
+            "metadata_source": self.metadata_source,
+            "cybench_subtask_count": len(self.cybench_subtasks),
             "skip_reason": self.skip_reason,
         }

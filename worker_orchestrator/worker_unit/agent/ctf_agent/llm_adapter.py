@@ -48,6 +48,7 @@ class LLMAdapter:
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.query_count = 0
         
         # Create ModelArguments (CTFMix expects this)
         self.args = ModelArguments(
@@ -110,6 +111,29 @@ class LLMAdapter:
         """
         # Convert history to messages
         messages = self.history_to_messages(history)
+        self.query_count += 1
+        prompt_blob = "\n\n".join(
+            f"{message.get('role', 'unknown').upper()}:\n{message.get('content', '')}"
+            for message in messages
+        )
+        if self.query_count == 1:
+            print(
+                "[LLMAdapter] First query prompt preview "
+                f"(chars={len(prompt_blob)}, contains_submit_subtask={'submit_subtask' in prompt_blob}):\n"
+                f"{prompt_blob[:4000]}"
+            )
+        else:
+            last_user_message = next(
+                (
+                    str(message.get("content", ""))
+                    for message in reversed(messages)
+                    if message.get("role") == "user"
+                ),
+                "",
+            )
+            print(
+                f"[LLMAdapter] Query #{self.query_count} last_user_preview={last_user_message[:400]!r}"
+            )
         
         # Build engine input (InferenceEngineClientWrapper format)
         engine_input = {
@@ -136,6 +160,9 @@ class LLMAdapter:
             engine_output = loop.run_until_complete(self.llm_client.generate(engine_input))
             
             response = engine_output["responses"][0]
+            print(
+                f"[LLMAdapter] Response #{self.query_count} preview={response[:400]!r}"
+            )
             
             # Update stats (approximate - we don't have actual token counts)
             # Estimate: ~4 chars per token
