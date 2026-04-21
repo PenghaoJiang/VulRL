@@ -6,6 +6,7 @@ from .xbow_reward import XbowReward
 from .nyu_ctf_reward import NYUCTFFlagReward
 from .cybench_flag_reward import CybenchFlagReward
 from .vulhub_rce_reward import VulhubRCEReward
+from .vulhub_read_reward import VulhubReadReward
 
 __all__ = [
     "CVEBenchReward",
@@ -14,4 +15,5 @@ __all__ = [
     "NYUCTFFlagReward",
     "CybenchFlagReward",
     "VulhubRCEReward",
+    "VulhubReadReward",
 ]

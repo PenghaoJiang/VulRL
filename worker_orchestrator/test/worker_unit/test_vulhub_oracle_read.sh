@@ -1,10 +1,10 @@
 #!/bin/bash
-# Test Vulhub Oracle Mode with RCE Reward
+# Test Vulhub Read-based Oracle Mode (SQLi, LFI, etc.)
 
 set -e
 
 echo "========================================================================"
-echo "Testing Vulhub Oracle Mode (oracle_solution.sh + vulhub_rce reward)"
+echo "Testing Vulhub Read-based Oracle Mode (flag extraction + vulhub_read reward)"
 echo "========================================================================"
 echo ""
 
@@ -55,10 +55,22 @@ fi
 echo ""
 
 # Run test
-echo "Running Vulhub oracle test..."
+echo "Running Vulhub read-based oracle test..."
+echo ""
+echo "Test cases:"
+echo "  - django/CVE-2021-35042 (SQLi)"
+echo "  - django/CVE-2022-34265 (SQLi)"
+echo "  - flink/CVE-2020-17519 (LFI)"
+echo "  - coldfusion/CVE-2010-2861 (LFI)"
+echo ""
+echo "Run with arguments to test specific cases:"
+echo "  bash test_vulhub_oracle_read.sh django-sqli"
+echo "  bash test_vulhub_oracle_read.sh flink-lfi"
+echo "  bash test_vulhub_oracle_read.sh coldfusion-lfi"
 echo ""
 
-python test/worker_unit/test_vulhub_oracle.py
+# Pass arguments to Python script
+python test/worker_unit/test_vulhub_oracle_read.py "$@"
 
 EXIT_CODE=$?
 
