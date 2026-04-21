@@ -32,5 +32,9 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/weblogic/C
 
 
 # vulhub read (SQLi, LFI, etc.), extract flag_* from output
+# SQLi
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265
+# LFI
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17519
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2010-2861
