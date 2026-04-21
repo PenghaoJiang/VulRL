@@ -47,10 +47,10 @@
 /data1/jph/VulRL/benchmark/vulhub/discuz/x3.4-arbitrary-file-deletion => arbitrary file deletion only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2017-12794 => XSS only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2018-14574 => open redirect only, not RCE
-/data1/jph/VulRL/benchmark/vulhub/django/CVE-2019-14234 => SQLi only, not direct RCE
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2019-14234 => NOT PRACTICAL for read oracle (authenticated admin already has access to data; SQLi doesn't disclose additional hidden info; error-based and UNION-based extraction both fail due to ORM limitations)
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2020-9402 => DoS only, not RCE
-/data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042 => SQLi only, not direct RCE
-/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => SQLi only, not direct RCE
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042 => done (read-based oracle with MySQL error-based SQLi) ✓
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => done (read-based oracle with PostgreSQL error-based SQLi) ✓
 /data1/jph/VulRL/benchmark/vulhub/dns/dns-zone-transfer => information disclosure only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/docker/unauthorized-rce => requires Python docker library + crontab write, too complex
 /data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2018-7600 => requires manual installation wizard completion before exploitation
@@ -225,12 +225,13 @@
 
 **HIGH PRIORITY - Very Practical:**
 /data1/jph/VulRL/benchmark/vulhub/struts2/s2-045 => done ✓
-/data1/jph/VulRL/benchmark/vulhub/struts2/s2-046 => not implemented
+/data1/jph/VulRL/benchmark/vulhub/struts2/s2-046 => similar to s2-045, not implemented
 /data1/jph/VulRL/benchmark/vulhub/spring/CVE-2022-22965 => Spring4Shell (multi-step JSP write, not implemented)
 /data1/jph/VulRL/benchmark/vulhub/thinkphp/5-rce => done ✓
 /data1/jph/VulRL/benchmark/vulhub/tomcat/CVE-2017-12615 => done ✓
 /data1/jph/VulRL/benchmark/vulhub/weblogic/CVE-2017-10271 => done ✓
-/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => error-based SQLi only, Django ORM blocks stacked queries
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042 => done (read-based oracle with MySQL error-based SQLi) ✓
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => done (read-based oracle with PostgreSQL error-based SQLi) ✓
 
 **MEDIUM PRIORITY - Somewhat Practical:**
 /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2019-17558 => needs evaluation
