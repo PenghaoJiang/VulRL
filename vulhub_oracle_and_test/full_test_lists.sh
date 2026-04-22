@@ -3,7 +3,6 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/aj-report/
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apache-druid/CVE-2021-25646
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2020-13945
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2021-45232
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2016-3088
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11981
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2014-3120
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-1427
@@ -33,12 +32,21 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/weblogic/C
 
 # vulhub read (SQLi, LFI, etc.), extract flag_* from output
 # SQLi
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/1panel/CVE-2024-39907
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265
 # LFI
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17519
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2010-2861
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/rails/CVE-2019-5418
+# SSRF
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/adminer/CVE-2021-21311
+# file read via malicious MySQL LOCAL INFILE
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/adminer/CVE-2021-43008
+# controlled file write
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2016-3088
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2022-41678
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/aria2/rce
 # privilege escalation
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12635
 # DNS Zone Transfer
