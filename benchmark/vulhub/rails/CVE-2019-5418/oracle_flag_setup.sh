@@ -11,10 +11,6 @@ if [[ -z "${ORACLE_FLAG:-}" ]]; then
   echo "Error: ORACLE_FLAG env var not set" >&2
   exit 1
 fi
-if [[ ! "$ORACLE_FLAG" =~ ^flag_[a-z0-9]{20}$ ]]; then
-  echo "Error: ORACLE_FLAG does not match ^flag_[a-z0-9]{20}\$ (got: ${ORACLE_FLAG})" >&2
-  exit 1
-fi
 if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
   echo "Error: COMPOSE_PROJECT_NAME env var not set" >&2
   exit 1
