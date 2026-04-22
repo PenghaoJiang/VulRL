@@ -38,3 +38,11 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/django/CV
 # LFI
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17519
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2010-2861
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/rails/CVE-2019-5418
+# privilege escalation
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12635
+# DNS Zone Transfer
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/dns/dns-zone-transfer
+
+# Both rce and read
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/thinkphp/5.0.23-rce

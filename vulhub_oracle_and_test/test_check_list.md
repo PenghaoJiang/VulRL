@@ -22,7 +22,7 @@
 /data1/jph/VulRL/benchmark/vulhub/cgi/CVE-2016-5385 => HTTPoxy (SSRF via proxy), not file-write RCE
 /data1/jph/VulRL/benchmark/vulhub/cmsms/CVE-2019-9053 => SQLi only, no direct RCE
 /data1/jph/VulRL/benchmark/vulhub/cmsms/CVE-2021-26120 => requires manual install/setup, SQLi precheck failed on fresh instance
-/data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12635 => privilege escalation only (creates admin user), not direct RCE
+/data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12635 => done (read-based oracle with privilege escalation - extracts admin credentials) ✓
 /data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12636 => _temp_view request hangs indefinitely, exploit chain unreliable
 /data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2022-24706 => Erlang distribution protocol too complex, EPMD connection failed
 /data1/jph/VulRL/benchmark/vulhub/craftcms/CVE-2023-41892 => requires install wizard completion + database setup
@@ -51,7 +51,7 @@
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2020-9402 => DoS only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042 => done (read-based oracle with MySQL error-based SQLi) ✓
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => done (read-based oracle with PostgreSQL error-based SQLi) ✓
-/data1/jph/VulRL/benchmark/vulhub/dns/dns-zone-transfer => information disclosure only, not RCE
+/data1/jph/VulRL/benchmark/vulhub/dns/dns-zone-transfer => done (read-based oracle with DNS zone transfer - extracts hidden records) ✓
 /data1/jph/VulRL/benchmark/vulhub/docker/unauthorized-rce => requires Python docker library + crontab write, too complex
 /data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2018-7600 => requires manual installation wizard completion before exploitation
 /data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2018-7602 => authenticated RCE, requires login credentials first
@@ -227,20 +227,24 @@
 /data1/jph/VulRL/benchmark/vulhub/struts2/s2-045 => done ✓
 /data1/jph/VulRL/benchmark/vulhub/struts2/s2-046 => similar to s2-045, not implemented
 /data1/jph/VulRL/benchmark/vulhub/spring/CVE-2022-22965 => Spring4Shell (multi-step JSP write, not implemented)
-/data1/jph/VulRL/benchmark/vulhub/thinkphp/5-rce => done ✓
+/data1/jph/VulRL/benchmark/vulhub/thinkphp/5-rce => done (dual-mode: read flag OR write marker file /tmp/exploit.txt) ✓
 /data1/jph/VulRL/benchmark/vulhub/tomcat/CVE-2017-12615 => done ✓
 /data1/jph/VulRL/benchmark/vulhub/weblogic/CVE-2017-10271 => done ✓
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042 => done (read-based oracle with MySQL error-based SQLi) ✓
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => done (read-based oracle with PostgreSQL error-based SQLi) ✓
 /data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17519 => done (read-based oracle with path traversal LFI) ✓
 /data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2010-2861 => done (read-based oracle with LFI via locale parameter) ✓
+/data1/jph/VulRL/benchmark/vulhub/rails/CVE-2019-5418 => done (read-based oracle with LFI via Accept header) ✓
+/data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12635 => done (read-based oracle with privilege escalation - extracts admin credentials) ✓
+/data1/jph/VulRL/benchmark/vulhub/dns/dns-zone-transfer => done (read-based oracle with DNS zone transfer - extracts hidden records) ✓
 
 **MEDIUM PRIORITY - Somewhat Practical:**
 /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2019-17558 => needs evaluation
 /data1/jph/VulRL/benchmark/vulhub/spring/CVE-2022-22947 => needs evaluation
 
 **NON-PRACTICAL (requires external tools/complex setup):**
-/data1/jph/VulRL/benchmark/vulhub/rails => needs further evaluation
+/data1/jph/VulRL/benchmark/vulhub/rails/CVE-2019-5418 => done (read-based oracle with LFI via Accept header) ✓
+/data1/jph/VulRL/benchmark/vulhub/rails => other cases need further evaluation
 /data1/jph/VulRL/benchmark/vulhub/react => client-side issues
 /data1/jph/VulRL/benchmark/vulhub/redis/4-unacc => requires external script + master-slave setup
 /data1/jph/VulRL/benchmark/vulhub/redis/CVE-2022-0543 => needs evaluation
