@@ -27,12 +27,15 @@ class RewardRouter:
             NYUCTFFlagReward,
             CybenchFlagReward,
             VulhubRCEReward,
+            VulhubReadReward,
         )
 
         if self.task_type == "vulhub":
             return VulhubReward(self.config)
         if self.task_type == "vulhub_rce":
             return VulhubRCEReward(self.config)
+        if self.task_type == "vulhub_read":
+            return VulhubReadReward(self.config)
         if self.task_type == "xbow":
             return XbowReward(self.config)
         if self.task_type == "cvebench":

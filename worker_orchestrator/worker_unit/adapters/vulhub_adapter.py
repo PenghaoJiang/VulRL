@@ -395,7 +395,7 @@ CMD ["tail", "-f", "/dev/null"]
             except Exception as e:
                 print(f"[VulhubAdapter] Warning: Failed to remove {container_name}: {e}")
 
-    def execute_oracle_solution(self) -> bool:
+    def execute_oracle_solution(self) -> tuple[bool, str]:
         """
         Execute oracle_solution.sh inside the attacker container.
         
@@ -403,17 +403,19 @@ CMD ["tail", "-f", "/dev/null"]
         streams it to attacker container via docker exec -i bash -s.
         
         Returns:
-            True if execution succeeded, False otherwise
+            Tuple of (success: bool, stdout: str)
+            - success: True if execution succeeded, False otherwise
+            - stdout: The stdout output from oracle_solution.sh (contains extracted flag for read-based oracles)
         """
         oracle_solution_path = self.compose_path / "oracle_solution.sh"
         
         if not oracle_solution_path.exists():
             print(f"[VulhubAdapter] oracle_solution.sh not found: {oracle_solution_path}")
-            return False
+            return False, ""
         
         if not self.attacker_container_obj:
             print(f"[VulhubAdapter] Attacker container not started")
-            return False
+            return False, ""
         
         print(f"[VulhubAdapter] Executing oracle_solution.sh in attacker container...")
         
@@ -441,23 +443,27 @@ CMD ["tail", "-f", "/dev/null"]
                     timeout=120
                 )
             
+            stdout_str = result.stdout.decode('utf-8', errors='ignore') if result.stdout else ""
+            stderr_str = result.stderr.decode('utf-8', errors='ignore') if result.stderr else ""
+            
             if result.returncode == 0:
                 print(f"[VulhubAdapter] oracle_solution.sh completed successfully")
-                if result.stdout:
-                    print(f"[VulhubAdapter] stdout: {result.stdout.decode('utf-8', errors='ignore')}")
-                return True
+                if stdout_str:
+                    print(f"[VulhubAdapter] stdout: {stdout_str}")
+                return True, stdout_str
             else:
                 print(f"[VulhubAdapter] oracle_solution.sh failed with exit code {result.returncode}")
-                if result.stderr:
-                    print(f"[VulhubAdapter] stderr: {result.stderr.decode('utf-8', errors='ignore')}")
-                return False
+                if stderr_str:
+                    print(f"[VulhubAdapter] stderr: {stderr_str}")
+                # Return stdout even on failure (might contain partial output)
+                return False, stdout_str
         
         except subprocess.TimeoutExpired:
             print(f"[VulhubAdapter] oracle_solution.sh timed out")
-            return False
+            return False, ""
         except Exception as e:
             print(f"[VulhubAdapter] Error executing oracle_solution.sh: {e}")
-            return False
+            return False, ""
 
     def execute_oracle_test(self) -> int:
         """
@@ -513,3 +519,67 @@ CMD ["tail", "-f", "/dev/null"]
         except Exception as e:
             print(f"[VulhubAdapter] Error executing oracle_test.sh: {e}")
             return 2  # Error code
+
+    def execute_oracle_flag_setup(self, oracle_flag: str) -> bool:
+        """
+        Execute oracle_flag_setup.sh on the host to insert flag into target.
+        
+        This is used for read-based oracles (SQLi, LFI) where a random flag
+        is generated and must be extracted by the agent.
+        
+        Args:
+            oracle_flag: The randomly generated flag string (e.g., "flag_abc123...")
+        
+        Returns:
+            True if setup succeeded, False otherwise
+        """
+        oracle_flag_setup_path = self.compose_path / "oracle_flag_setup.sh"
+        
+        if not oracle_flag_setup_path.exists():
+            print(f"[VulhubAdapter] ERROR: oracle_flag_setup.sh not found: {oracle_flag_setup_path}")
+            return False
+        
+        print(f"[VulhubAdapter] Executing oracle_flag_setup.sh on host with flag: {oracle_flag}")
+        
+        # Build environment variables for oracle_flag_setup.sh (host execution)
+        env_vars = {
+            "TARGET_CONTAINER": self.target_container_name or "",
+            "TARGET_CONTAINER_ID": self.target_container_obj.id if self.target_container_obj else "",
+            "COMPOSE_PROJECT_NAME": self.project_name or "",
+            "ATTACKER_CONTAINER": self.attacker_container_name or "",
+            "ORACLE_CASE_DIR": str(self.compose_path.resolve()),
+            "ORACLE_FLAG": oracle_flag,
+        }
+        
+        try:
+            # Run oracle_flag_setup.sh on host
+            result = subprocess.run(
+                ["bash", str(oracle_flag_setup_path)],
+                cwd=str(self.compose_path),
+                env={**subprocess.os.environ, **env_vars},
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            exit_code = result.returncode
+            
+            if exit_code == 0:
+                print(f"[VulhubAdapter] oracle_flag_setup.sh completed successfully")
+                if result.stdout:
+                    print(f"[VulhubAdapter] stdout: {result.stdout}")
+                return True
+            else:
+                print(f"[VulhubAdapter] ERROR: oracle_flag_setup.sh failed with exit code {exit_code}")
+                if result.stdout:
+                    print(f"[VulhubAdapter] stdout: {result.stdout}")
+                if result.stderr:
+                    print(f"[VulhubAdapter] stderr: {result.stderr}")
+                return False
+        
+        except subprocess.TimeoutExpired:
+            print(f"[VulhubAdapter] ERROR: oracle_flag_setup.sh timed out")
+            return False
+        except Exception as e:
+            print(f"[VulhubAdapter] ERROR: Failed to execute oracle_flag_setup.sh: {e}")
+            return False

@@ -33,7 +33,7 @@
 /data1/jph/VulRL/benchmark/vulhub/confluence/CVE-2022-26134 => requires licensed Confluence instance
 /data1/jph/VulRL/benchmark/vulhub/confluence/CVE-2023-22515 => requires licensed Confluence instance with specific setup
 /data1/jph/VulRL/benchmark/vulhub/confluence/CVE-2023-22527 => requires licensed Confluence instance
-/data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2010-2861 => directory traversal/file read only, not RCE
+/data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2010-2861 => done (read-based oracle with LFI via locale parameter) ✓
 /data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2017-3066 => requires Java toolchain for AMF serialization payload
 /data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2023-26360 => LFI to RCE chain not working, marker file not created
 /data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2023-29300 => requires JNDI/LDAP infrastructure for log4shell-style exploitation
@@ -47,10 +47,10 @@
 /data1/jph/VulRL/benchmark/vulhub/discuz/x3.4-arbitrary-file-deletion => arbitrary file deletion only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2017-12794 => XSS only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2018-14574 => open redirect only, not RCE
-/data1/jph/VulRL/benchmark/vulhub/django/CVE-2019-14234 => SQLi only, not direct RCE
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2019-14234 => NOT PRACTICAL for read oracle (authenticated admin already has access to data; SQLi doesn't disclose additional hidden info; error-based and UNION-based extraction both fail due to ORM limitations)
 /data1/jph/VulRL/benchmark/vulhub/django/CVE-2020-9402 => DoS only, not RCE
-/data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042 => SQLi only, not direct RCE
-/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => SQLi only, not direct RCE
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042 => done (read-based oracle with MySQL error-based SQLi) ✓
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => done (read-based oracle with PostgreSQL error-based SQLi) ✓
 /data1/jph/VulRL/benchmark/vulhub/dns/dns-zone-transfer => information disclosure only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/docker/unauthorized-rce => requires Python docker library + crontab write, too complex
 /data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2018-7600 => requires manual installation wizard completion before exploitation
@@ -58,11 +58,11 @@
 /data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2017-6920 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2019-6339 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2019-6341 => needs further evaluation
-/data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2014-3704 => needs further evaluation
+/data1/jph/VulRL/benchmark/vulhub/drupal/CVE-2014-3704 => oracle created but NOT WORKING (returns 302 redirects, may need installation wizard)
 /data1/jph/VulRL/benchmark/vulhub/dubbo/CVE-2019-17564 => deserialization requiring ysoserial + Zookeeper access
 /data1/jph/VulRL/benchmark/vulhub/ecshop/xianzhi-2017-02-82239600 => SQLi to RCE requires complex chain + installation
 /data1/jph/VulRL/benchmark/vulhub/ecshop/collection_list-sqli => SQLi only, not direct RCE
-/data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-3337 => directory traversal (file read) only, not RCE
+/data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-3337 => oracle created but NEEDS DEBUGGING (path traversal returns JSON error instead of file contents)
 /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-5531 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/elasticsearch/WooYun-2015-110216 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/electron/CVE-2018-1000006 => client-side Windows RCE, not server-side
@@ -73,7 +73,7 @@
 /data1/jph/VulRL/benchmark/vulhub/fastjson/vuln => requires external JNDI server + remote class hosting infrastructure
 /data1/jph/VulRL/benchmark/vulhub/ffmpeg/CVE-2016-1897 => file read + SSRF only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/ffmpeg/CVE-2017-9993 => likely file read/SSRF
-/data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17519 => path traversal (file read) only, not RCE
+/data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17519 => done (read-based oracle with path traversal LFI) ✓
 /data1/jph/VulRL/benchmark/vulhub/geoserver/CVE-2024-36401 => done ✓
 /data1/jph/VulRL/benchmark/vulhub/geoserver/CVE-2021-40822 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/geoserver/CVE-2023-25157 => needs further evaluation
@@ -94,7 +94,7 @@
 /data1/jph/VulRL/benchmark/vulhub/gradio/CVE-2023-51449 => path traversal (file read) only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/gradio/CVE-2024-1561 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/grafana/admin-ssrf => SSRF only, not RCE
-/data1/jph/VulRL/benchmark/vulhub/grafana/CVE-2021-43798 => path traversal (file read) only, not RCE
+/data1/jph/VulRL/benchmark/vulhub/grafana/CVE-2021-43798 => NOT PRACTICAL for read oracle (requires anonymous auth disabled; vulhub image enforces authentication)
 /data1/jph/VulRL/benchmark/vulhub/h2database/CVE-2022-23221 => JDBC URL encoding issues with multiline JavaScript trigger
 /data1/jph/VulRL/benchmark/vulhub/h2database/CVE-2021-42392 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/h2database/CVE-2018-10054 => needs further evaluation
@@ -125,7 +125,7 @@
 /data1/jph/VulRL/benchmark/vulhub/jenkins/CVE-2017-1000353 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/jenkins/CVE-2024-23897 => arbitrary file read only, not RCE
 /data1/jph/VulRL/benchmark/vulhub/jenkins/CVE-2018-1000861 => needs further evaluation
-/data1/jph/VulRL/benchmark/vulhub/jetty/CVE-2021-28164 => information disclosure (file read) only, not RCE
+/data1/jph/VulRL/benchmark/vulhub/jetty/CVE-2021-28164 => oracle created but NEEDS DEBUGGING (%2e bypass not working)
 /data1/jph/VulRL/benchmark/vulhub/jetty/CVE-2021-28169 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/jetty/CVE-2021-34429 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/jimureport/CVE-2023-4450 => done ✓
@@ -174,7 +174,7 @@
 /data1/jph/VulRL/benchmark/vulhub/nginx/CVE-2017-7529 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/nginx/insecure-configuration => CRLF, directory traversal, header issues - no RCE
 /data1/jph/VulRL/benchmark/vulhub/nginx/nginx_parsing_vulnerability => needs further evaluation
-/data1/jph/VulRL/benchmark/vulhub/node/CVE-2017-14849 => path traversal (file read) only, not RCE
+/data1/jph/VulRL/benchmark/vulhub/node/CVE-2017-14849 => NOT PRACTICAL for read oracle (normalize() bug resolves paths correctly but Express refuses to serve files outside static root)
 /data1/jph/VulRL/benchmark/vulhub/node/CVE-2017-16082 => needs further evaluation
 /data1/jph/VulRL/benchmark/vulhub/ntopng/CVE-2021-28073 => authentication bypass only, not RCE
 
@@ -225,12 +225,15 @@
 
 **HIGH PRIORITY - Very Practical:**
 /data1/jph/VulRL/benchmark/vulhub/struts2/s2-045 => done ✓
-/data1/jph/VulRL/benchmark/vulhub/struts2/s2-046 => not implemented
+/data1/jph/VulRL/benchmark/vulhub/struts2/s2-046 => similar to s2-045, not implemented
 /data1/jph/VulRL/benchmark/vulhub/spring/CVE-2022-22965 => Spring4Shell (multi-step JSP write, not implemented)
 /data1/jph/VulRL/benchmark/vulhub/thinkphp/5-rce => done ✓
 /data1/jph/VulRL/benchmark/vulhub/tomcat/CVE-2017-12615 => done ✓
 /data1/jph/VulRL/benchmark/vulhub/weblogic/CVE-2017-10271 => done ✓
-/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => error-based SQLi only, Django ORM blocks stacked queries
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042 => done (read-based oracle with MySQL error-based SQLi) ✓
+/data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265 => done (read-based oracle with PostgreSQL error-based SQLi) ✓
+/data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17519 => done (read-based oracle with path traversal LFI) ✓
+/data1/jph/VulRL/benchmark/vulhub/coldfusion/CVE-2010-2861 => done (read-based oracle with LFI via locale parameter) ✓
 
 **MEDIUM PRIORITY - Somewhat Practical:**
 /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2019-17558 => needs evaluation
@@ -270,4 +273,5 @@
 /data1/jph/VulRL/benchmark/vulhub/xstream => needs evaluation
 /data1/jph/VulRL/benchmark/vulhub/xxl-job => needs evaluation
 /data1/jph/VulRL/benchmark/vulhub/yapi => needs evaluation
+/data1/jph/VulRL/benchmark/vulhub/zabbix/CVE-2016-10134 => oracle created but NOT WORKING (jsrpc.php returns HTML instead of SQL error)
 /data1/jph/VulRL/benchmark/vulhub/zabbix => needs evaluation

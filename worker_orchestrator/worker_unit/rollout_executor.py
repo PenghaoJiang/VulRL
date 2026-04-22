@@ -173,7 +173,48 @@ class RolloutExecutor:
             
             print(f"[RolloutExecutor] Initial observation: {observation_str[:200]}...")
             
-            # 4. Check if oracle mode is enabled
+            # 4. Handle read-based oracle setup (SQLi, LFI) - must happen BEFORE agent/oracle execution
+            reward_type = request.metadata.get("reward_type", task_type)
+            oracle_flag = None  # Will be set for read-based cases
+            
+            if reward_type == "vulhub_read":
+                print(f"[RolloutExecutor] Read-based reward detected - generating random flag...")
+                
+                # Generate random flag: flag_[a-z0-9]{20}
+                import secrets
+                import string
+                oracle_flag = "flag_" + ''.join(
+                    secrets.choice(string.ascii_lowercase + string.digits) 
+                    for _ in range(20)
+                )
+                print(f"[RolloutExecutor] Generated oracle flag: {oracle_flag}")
+                
+                # Execute oracle_flag_setup.sh BEFORE agent starts
+                if task_type == "vulhub" and hasattr(env.adapter, "execute_oracle_flag_setup"):
+                    print(f"[RolloutExecutor] Running oracle_flag_setup.sh...")
+                    setup_success = env.adapter.execute_oracle_flag_setup(oracle_flag)
+                    
+                    if not setup_success:
+                        print(f"[RolloutExecutor] ERROR: oracle_flag_setup failed - aborting with reward=0.0")
+                        # Close environment and return early with 0 reward
+                        if env:
+                            env.close()
+                        
+                        return RolloutResult(
+                            cve_id=request.cve_id,
+                            status="failed",
+                            reward=0.0,
+                            success=False,
+                            trajectory=[],
+                            duration=time.time() - start_time,
+                            error="oracle_flag_setup.sh failed - cannot proceed with read-based test"
+                        )
+                    
+                    print(f"[RolloutExecutor] oracle_flag_setup.sh completed successfully")
+                else:
+                    print(f"[RolloutExecutor] WARNING: vulhub_read reward requested but adapter doesn't support flag setup")
+            
+            # 5. Check if oracle mode is enabled
             is_oracle = request.metadata.get("is_oracle", False)
             
             if is_oracle:
@@ -181,22 +222,31 @@ class RolloutExecutor:
                 
                 # Execute oracle solution instead of using agent
                 if task_type == "vulhub" and hasattr(env.adapter, "execute_oracle_solution"):
-                    success = env.adapter.execute_oracle_solution()
+                    success, oracle_stdout = env.adapter.execute_oracle_solution()
                     if success:
                         print(f"[RolloutExecutor] Oracle solution executed successfully")
                     else:
                         print(f"[RolloutExecutor] Oracle solution execution failed")
                     
                     # Create a minimal trajectory for oracle execution
+                    # IMPORTANT: Use oracle_stdout as observation (contains extracted flag for read-based oracles)
                     from worker_unit.agent.base_agent import TrajectoryStep
+                    
+                    # Format oracle output similar to DockerExecutor output
+                    oracle_observation = f"[Oracle Solution Output]\n"
+                    if oracle_stdout:
+                        oracle_observation += f"STDOUT:\n{oracle_stdout}\n"
+                    else:
+                        oracle_observation += "STDOUT: (empty)\n"
+                    
                     trajectory = [
                         TrajectoryStep(
                             step=0,
-                            observation=observation_str,
+                            observation=oracle_observation,
                             action="[Oracle solution executed]",
                             reward=0.0,
                             done=False,
-                            metadata={"oracle_mode": True}
+                            metadata={"oracle_mode": True, "oracle_success": success}
                         )
                     ]
                 else:
@@ -295,6 +345,27 @@ class RolloutExecutor:
                 if env:
                     env.close()
                     print("[RolloutExecutor] Environment closed")
+            elif reward_type == "vulhub_read":
+                # Read-based reward: check if oracle_flag appears in trajectory
+                # Can teardown first (doesn't need live containers)
+                if env:
+                    env.close()
+                    print("[RolloutExecutor] Environment closed")
+                
+                reward_config = {
+                    "oracle_flag": oracle_flag,
+                    "case_dir": str(env.adapter.compose_path) if hasattr(env.adapter, "compose_path") else "",
+                }
+                reward_calculator = RewardCalculator(
+                    task_type="vulhub_read",
+                    config=reward_config,
+                )
+                reward_task_id = request.vulhub_path or request.cve_id
+                total_reward = reward_calculator.compute_episode_reward(
+                    trajectory=traj_dicts,
+                    task_id=reward_task_id,
+                )
+                print(f"[RolloutExecutor] Total reward: {total_reward}")
             else:
                 # Other task types: teardown first, then compute reward
                 if env:

@@ -1,12 +1,13 @@
 """
-Test Vulhub Oracle Mode with RCE Reward
+Test Vulhub RCE Oracle Mode (File Creation)
 
-This test validates the oracle mode functionality where:
+This test validates the RCE oracle mode functionality where:
 1. is_oracle=True triggers oracle_solution.sh execution instead of LLM agent
-2. reward_type="vulhub_rce" uses oracle_test.sh to verify exploit success
-3. Reward should be 1.0 if oracle_test.sh exits with code 0
+2. Agent creates a file (e.g., /tmp/exploit.txt) to demonstrate RCE
+3. reward_type="vulhub_rce" uses oracle_test.sh to verify exploit success
+4. Reward should be 1.0 if oracle_test.sh exits with code 0
 
-Test case: aj-report/CNVD-2024-15077
+Test case: aj-report/CNVD-2024-15077 (RCE via file creation)
 """
 
 import asyncio
