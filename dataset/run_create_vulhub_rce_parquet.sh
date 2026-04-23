@@ -1,13 +1,14 @@
 #!/bin/bash
-# Create Vulhub RCE Oracle Parquet for Training
+# Create Vulhub Oracle Parquet for Training
 #
-# This script generates a parquet file from oracle-verified Vulhub RCE cases.
-# The parquet is designed for training with vulhub_rce reward (oracle_test.sh verification).
+# This script generates parquet files from oracle-verified Vulhub cases.
+# Supports both RCE (vulhub_rce) and Read (vulhub_read) reward types.
+# Can generate easy, medium, or hard difficulty levels.
 
 set -e
 
 echo "========================================================================"
-echo "Vulhub RCE Oracle Parquet Creator"
+echo "Vulhub Oracle Parquet Creator"
 echo "========================================================================"
 echo ""
 
@@ -46,12 +47,58 @@ echo ""
 
 # Set default paths
 INPUT_FILE="${INPUT_FILE:-$REPO_ROOT/vulhub_oracle_and_test/full_test_lists.sh}"
-OUTPUT_FILE="${OUTPUT_FILE:-$SCRIPT_DIR/train_vulhub_rce.parquet}"
+OUTPUT_FILE="${OUTPUT_FILE:-$SCRIPT_DIR/train_vulhub.parquet}"
 BENCHMARK_ROOT="${BENCHMARK_ROOT:-$REPO_ROOT/benchmark/vulhub}"
+DIFFICULTY="${DIFFICULTY:-easy}"
 
-# Allow overriding via arguments
-if [ ! -z "$1" ]; then
-    OUTPUT_FILE="$1"
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --difficulty)
+            DIFFICULTY="$2"
+            shift 2
+            ;;
+        --output)
+            OUTPUT_FILE="$2"
+            shift 2
+            ;;
+        --input)
+            INPUT_FILE="$2"
+            shift 2
+            ;;
+        --benchmark-root)
+            BENCHMARK_ROOT="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [options]"
+            echo ""
+            echo "Options:"
+            echo "  --difficulty <easy|medium|hard>  Prompt difficulty (default: easy)"
+            echo "  --output <path>                  Output parquet file"
+            echo "  --input <path>                   Input test list file"
+            echo "  --benchmark-root <path>          Benchmark root directory"
+            echo "  -h, --help                       Show this help"
+            echo ""
+            echo "Examples:"
+            echo "  $0                                    # Create train_vulhub_easy.parquet"
+            echo "  $0 --difficulty medium                # Create train_vulhub_medium.parquet"
+            echo "  $0 --difficulty hard --output out.parquet  # Create out_hard.parquet"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate difficulty
+if [[ ! "$DIFFICULTY" =~ ^(easy|medium|hard)$ ]]; then
+    echo "✗ Invalid difficulty: $DIFFICULTY"
+    echo "  Must be one of: easy, medium, hard"
+    exit 1
 fi
 
 # Check if input file exists
@@ -72,8 +119,9 @@ fi
 
 echo "Configuration:"
 echo "  Input:          $INPUT_FILE"
-echo "  Output:         $OUTPUT_FILE"
+echo "  Output:         $OUTPUT_FILE (will auto-append _$DIFFICULTY)"
 echo "  Benchmark Root: $BENCHMARK_ROOT"
+echo "  Difficulty:     $DIFFICULTY"
 echo ""
 
 # Run the Python script
@@ -83,20 +131,31 @@ echo ""
 python create_vulhub_rce_parquet.py \
     --input "$INPUT_FILE" \
     --output "$OUTPUT_FILE" \
-    --benchmark-root "$BENCHMARK_ROOT"
+    --benchmark-root "$BENCHMARK_ROOT" \
+    --difficulty "$DIFFICULTY"
 
 EXIT_CODE=$?
 
 echo ""
 if [ $EXIT_CODE -eq 0 ]; then
-    echo "✓ Parquet created successfully!"
+    # Get actual output filename (with difficulty appended)
+    OUTPUT_STEM=$(basename "$OUTPUT_FILE" .parquet)
+    OUTPUT_DIR=$(dirname "$OUTPUT_FILE")
+    ACTUAL_OUTPUT="$OUTPUT_DIR/${OUTPUT_STEM}_${DIFFICULTY}.parquet"
+    
+    echo "✓ Parquet created successfully: $ACTUAL_OUTPUT"
     echo ""
     echo "Next steps:"
     echo "  1. Copy to worker_orchestrator for use with SkyRL:"
-    echo "     cp $OUTPUT_FILE $REPO_ROOT/worker_orchestrator/ez_generator/"
+    echo "     cp $ACTUAL_OUTPUT $REPO_ROOT/worker_orchestrator/ez_generator/"
     echo ""
     echo "  2. Use in SkyRL training config:"
-    echo "     dataset_path: worker_orchestrator/ez_generator/train_vulhub_rce.parquet"
+    echo "     dataset_path: worker_orchestrator/ez_generator/$(basename $ACTUAL_OUTPUT)"
+    echo ""
+    echo "To create other difficulty levels:"
+    echo "  $0 --difficulty easy     # Create easy prompts"
+    echo "  $0 --difficulty medium   # Create medium prompts"
+    echo "  $0 --difficulty hard     # Create hard prompts"
 else
     echo "✗ Failed to create parquet (exit code: $EXIT_CODE)"
     exit $EXIT_CODE
