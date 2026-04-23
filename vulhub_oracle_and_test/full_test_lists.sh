@@ -33,6 +33,7 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/weblogic/C
 # vulhub read (SQLi, LFI, etc.), extract flag_* from output
 # SQLi
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/1panel/CVE-2024-39907
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/appweb/CVE-2018-8715
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/django/CVE-2021-35042
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/django/CVE-2022-34265
 # LFI
@@ -41,6 +42,7 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/coldfusio
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/rails/CVE-2019-5418
 # SSRF
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/adminer/CVE-2021-21311
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apache-cxf/CVE-2024-28752
 # file read via malicious MySQL LOCAL INFILE
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/adminer/CVE-2021-43008
 # controlled file write
@@ -50,6 +52,9 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2022-41678
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2023-46604
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/aria2/rce
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/bash/CVE-2014-6271
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/cacti/CVE-2022-46169
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/cacti/CVE-2023-39361
 # privilege escalation
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12635
 # DNS Zone Transfer
