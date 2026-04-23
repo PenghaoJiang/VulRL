@@ -44,8 +44,11 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/adminer/C
 # file read via malicious MySQL LOCAL INFILE
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/adminer/CVE-2021-43008
 # controlled file write
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11978
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-17526
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2016-3088
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2022-41678
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2023-46604
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/aria2/rce
 # privilege escalation
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12635
