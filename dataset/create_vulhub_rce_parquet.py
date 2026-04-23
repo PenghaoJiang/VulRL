@@ -1,20 +1,29 @@
 """
-Create Vulhub RCE Oracle Parquet for Training
+Create Vulhub Oracle Parquet for Training
 
-This script generates a parquet file from oracle-verified Vulhub RCE cases.
-The parquet is designed for training with vulhub_rce reward (oracle_test.sh verification).
+This script generates parquet files from oracle-verified Vulhub cases.
+Supports both RCE and Read-based vulnerabilities with configurable difficulty levels.
 
 Input:
     - vulhub_oracle_and_test/full_test_lists.sh: List of verified oracle cases
+      - Cases using run_oracle_and_test_4_rce.sh get reward_type="vulhub_rce"
+      - Cases using run_oracle_and_test_4_read.sh get reward_type="vulhub_read"
+    - benchmark/vulhub/*/oracle_prompt.txt: prompt_hard/medium/easy for each case
 
 Output:
-    - train_vulhub_rce.parquet: Training data with vulhub_rce reward metadata
+    - train_vulhub_<difficulty>.parquet: Training data with correct reward metadata
 
 Usage:
+    # Easy prompts (default)
     python create_vulhub_rce_parquet.py \
         --input vulhub_oracle_and_test/full_test_lists.sh \
-        --output dataset/train_vulhub_rce.parquet \
-        --benchmark-root benchmark/vulhub
+        --output dataset/train_vulhub.parquet
+
+    # Medium or hard prompts
+    python create_vulhub_rce_parquet.py \
+        --input vulhub_oracle_and_test/full_test_lists.sh \
+        --output dataset/train_vulhub.parquet \
+        --difficulty medium
 """
 
 import argparse
@@ -24,15 +33,19 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 
-# Standard prompt for all cases
-STANDARD_PROMPT = "exploit the vulnerability of given target and CREATE file /tmp/exploit.txt in target server to perform a SUCCESS exploitation"
-
 # Default max steps
 MAX_STEPS = 30
 
 
 class VulhubRCEParquetCreator:
-    """Create parquet for Vulhub RCE oracle training"""
+    """
+    Create parquet for Vulhub oracle training (RCE and Read-based).
+    
+    Path Handling:
+    - Parquet stores full paths from repo root: "benchmark/vulhub/aj-report/CNVD-2024-15077"
+    - Internally strips "benchmark/vulhub/" prefix when constructing paths
+    - This makes the parquet portable across machines while keeping code simple
+    """
     
     def __init__(self, benchmark_root: Path):
         """
@@ -45,73 +58,105 @@ class VulhubRCEParquetCreator:
         if not self.benchmark_root.exists():
             raise FileNotFoundError(f"Benchmark root not found: {self.benchmark_root}")
     
-    def parse_test_list(self, test_list_file: Path) -> List[str]:
+    def parse_test_list(self, test_list_file: Path) -> List[tuple[str, str]]:
         """
-        Parse full_test_lists.sh to extract case paths.
+        Parse full_test_lists.sh to extract case paths and reward types.
         
         Args:
             test_list_file: Path to full_test_lists.sh
             
         Returns:
-            List of absolute paths from the script
+            List of tuples (absolute_path, reward_type)
+            - reward_type is "vulhub_rce" for run_oracle_and_test_4_rce.sh
+            - reward_type is "vulhub_read" for run_oracle_and_test_4_read.sh
         """
         if not test_list_file.exists():
             raise FileNotFoundError(f"Test list file not found: {test_list_file}")
         
         print(f"Reading test list: {test_list_file}")
         
-        case_paths = []
+        case_info = []
         with open(test_list_file, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-                # Skip empty lines and comments
-                if not line or line.startswith('#'):
+                # Only process lines starting with "bash"
+                if not line.startswith('bash'):
                     continue
                 
-                # Extract path from: bash ./run_oracle_and_test.sh /path/to/case
-                if 'run_oracle_and_test.sh' in line:
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        abs_path = parts[2]  # Third element is the path
-                        case_paths.append(abs_path)
+                # Determine reward type based on script name
+                reward_type = None
+                if 'run_oracle_and_test_4_rce.sh' in line:
+                    reward_type = "vulhub_rce"
+                elif 'run_oracle_and_test_4_read.sh' in line:
+                    reward_type = "vulhub_read"
+                else:
+                    # Skip unknown scripts
+                    continue
+                
+                # Extract path: bash ./run_oracle_and_test_4_*.sh /path/to/case
+                parts = line.split()
+                if len(parts) >= 3:
+                    abs_path = parts[2]  # Third element is the path
+                    case_info.append((abs_path, reward_type))
         
-        print(f"Found {len(case_paths)} cases")
-        return case_paths
+        print(f"Found {len(case_info)} cases ({sum(1 for _, r in case_info if r == 'vulhub_rce')} RCE, {sum(1 for _, r in case_info if r == 'vulhub_read')} Read)")
+        return case_info
     
     def absolute_to_relative(self, abs_path: str) -> str:
         """
-        Convert absolute path to relative vulhub_path.
+        Convert absolute path to relative path from repo root.
+        
+        This method finds 'VulRL' (the repo name) in the path and takes
+        everything after it to create a portable relative path.
         
         Args:
             abs_path: /data1/jph/VulRL/benchmark/vulhub/aj-report/CNVD-2024-15077
             
         Returns:
-            aj-report/CNVD-2024-15077
+            benchmark/vulhub/aj-report/CNVD-2024-15077
         """
-        # Find 'vulhub/' in the path and take everything after it
-        parts = abs_path.replace('\\', '/').split('/')
+        # Normalize path separators
+        normalized_path = abs_path.replace('\\', '/')
+        parts = normalized_path.split('/')
         
-        # Find the index of 'vulhub' directory
+        # Find the index of 'VulRL' directory (repo root)
         try:
-            vulhub_idx = parts.index('vulhub')
-            # Take everything after 'vulhub/'
-            relative_parts = parts[vulhub_idx + 1:]
+            repo_idx = parts.index('VulRL')
+            # Take everything after 'VulRL/'
+            relative_parts = parts[repo_idx + 1:]
             return '/'.join(relative_parts)
         except ValueError:
-            # If 'vulhub' not found, try to extract last 2 segments
-            return '/'.join(parts[-2:]) if len(parts) >= 2 else parts[-1]
+            # Fallback: if 'VulRL' not found, try to find 'vulhub' and include parent dirs
+            try:
+                vulhub_idx = parts.index('vulhub')
+                # Include 'benchmark/vulhub' and everything after
+                if vulhub_idx > 0 and parts[vulhub_idx - 1] == 'benchmark':
+                    relative_parts = parts[vulhub_idx - 1:]
+                    return '/'.join(relative_parts)
+                else:
+                    # Just vulhub and after
+                    relative_parts = parts[vulhub_idx:]
+                    return '/'.join(relative_parts)
+            except ValueError:
+                # Last resort: take last 3 segments (likely: benchmark/vulhub/case or vulhub/category/case)
+                return '/'.join(parts[-3:]) if len(parts) >= 3 else '/'.join(parts[-2:]) if len(parts) >= 2 else parts[-1]
     
     def verify_case_exists(self, vulhub_path: str) -> bool:
         """
         Verify that case directory exists in benchmark root.
         
         Args:
-            vulhub_path: Relative path (e.g., "aj-report/CNVD-2024-15077")
+            vulhub_path: Relative path from repo root (e.g., "benchmark/vulhub/aj-report/CNVD-2024-15077")
             
         Returns:
             True if case directory exists with required files
         """
-        case_dir = self.benchmark_root / vulhub_path
+        # Strip benchmark/vulhub prefix if present since benchmark_root already points there
+        path_to_check = vulhub_path
+        if vulhub_path.startswith('benchmark/vulhub/'):
+            path_to_check = vulhub_path[len('benchmark/vulhub/'):]
+        
+        case_dir = self.benchmark_root / path_to_check
         
         if not case_dir.exists():
             return False
@@ -119,35 +164,87 @@ class VulhubRCEParquetCreator:
         # Check for required oracle files
         oracle_solution = case_dir / "oracle_solution.sh"
         oracle_test = case_dir / "oracle_test.sh"
+        oracle_prompt = case_dir / "oracle_prompt.txt"
         docker_compose = case_dir / "docker-compose.yml"
         
         has_compose = docker_compose.exists() or (case_dir / "docker-compose.yaml").exists()
         
-        return oracle_solution.exists() and oracle_test.exists() and has_compose
+        return oracle_solution.exists() and oracle_test.exists() and oracle_prompt.exists() and has_compose
     
-    def create_row(self, vulhub_path: str) -> Dict[str, Any]:
+    def read_prompt(self, vulhub_path: str, difficulty: str = "easy") -> str:
+        """
+        Read prompt from oracle_prompt.txt based on difficulty.
+        
+        Args:
+            vulhub_path: Relative path from repo root (e.g., "benchmark/vulhub/aj-report/CNVD-2024-15077")
+            difficulty: Prompt difficulty level ("easy", "medium", or "hard")
+            
+        Returns:
+            The prompt text, or default prompt if not found
+        """
+        # Strip benchmark/vulhub prefix if present since benchmark_root already points there
+        path_to_check = vulhub_path
+        if vulhub_path.startswith('benchmark/vulhub/'):
+            path_to_check = vulhub_path[len('benchmark/vulhub/'):]
+        
+        case_dir = self.benchmark_root / path_to_check
+        oracle_prompt_file = case_dir / "oracle_prompt.txt"
+        
+        if not oracle_prompt_file.exists():
+            print(f"  ⚠ Warning: oracle_prompt.txt not found for {vulhub_path}")
+            return "exploit the vulnerability of given target and CREATE file /tmp/exploit.txt in target server to perform a SUCCESS exploitation"
+        
+        try:
+            with open(oracle_prompt_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            # Parse the file to find the specified difficulty prompt
+            prompt_key = f"prompt_{difficulty}:"
+            for line in lines:
+                line = line.strip()
+                if line.startswith(prompt_key):
+                    # Extract everything after "prompt_{difficulty}: "
+                    prompt = line[len(prompt_key):].strip()
+                    return prompt
+            
+            # If specified difficulty not found, warn and use default
+            print(f"  ⚠ Warning: {prompt_key} not found in oracle_prompt.txt for {vulhub_path}")
+            return "exploit the vulnerability of given target and CREATE file /tmp/exploit.txt in target server to perform a SUCCESS exploitation"
+            
+        except Exception as e:
+            print(f"  ⚠ Error reading oracle_prompt.txt for {vulhub_path}: {e}")
+            return "exploit the vulnerability of given target and CREATE file /tmp/exploit.txt in target server to perform a SUCCESS exploitation"
+    
+    def create_row(self, vulhub_path: str, reward_type: str, difficulty: str = "easy") -> Dict[str, Any]:
         """
         Create a single parquet row for a case.
         
         Args:
-            vulhub_path: Relative path (e.g., "aj-report/CNVD-2024-15077")
+            vulhub_path: Relative path from repo root (e.g., "benchmark/vulhub/aj-report/CNVD-2024-15077")
+            reward_type: Reward type ("vulhub_rce" or "vulhub_read")
+            difficulty: Prompt difficulty level ("easy", "medium", or "hard")
             
         Returns:
             Dict with parquet columns
         """
-        # cve_id is the full path segment
+        # cve_id is the case-specific part (strip benchmark/vulhub prefix for backward compatibility)
         cve_id = vulhub_path
+        if vulhub_path.startswith('benchmark/vulhub/'):
+            cve_id = vulhub_path[len('benchmark/vulhub/'):]
         
-        # Standard metadata for all cases
+        # Read prompt from oracle_prompt.txt based on difficulty
+        prompt = self.read_prompt(vulhub_path, difficulty)
+        
+        # Metadata with correct reward type
         metadata = {
             "agent_type": "ctf",
-            "reward_type": "vulhub_rce"
+            "reward_type": reward_type
         }
         
         return {
             "cve_id": cve_id,
             "vulhub_path": vulhub_path,
-            "prompt": STANDARD_PROMPT,
+            "prompt": prompt,
             "max_steps": MAX_STEPS,
             "metadata": json.dumps(metadata, ensure_ascii=False)
         }
@@ -156,6 +253,7 @@ class VulhubRCEParquetCreator:
         self,
         test_list_file: Path,
         output_path: Path,
+        difficulty: str = "easy",
     ) -> int:
         """
         Create parquet file from test list.
@@ -163,27 +261,29 @@ class VulhubRCEParquetCreator:
         Args:
             test_list_file: Path to full_test_lists.sh
             output_path: Output parquet file path
+            difficulty: Prompt difficulty level ("easy", "medium", or "hard")
             
         Returns:
             Number of cases converted
         """
         print("=" * 70)
-        print("Vulhub RCE Oracle Parquet Creator")
+        print("Vulhub Oracle Parquet Creator (RCE + Read)")
         print("=" * 70)
         print(f"Benchmark root: {self.benchmark_root}")
         print(f"Input: {test_list_file}")
         print(f"Output: {output_path}")
+        print(f"Difficulty: {difficulty}")
         print("=" * 70)
         print()
         
         # Parse test list
-        case_paths = self.parse_test_list(test_list_file)
+        case_info = self.parse_test_list(test_list_file)
         
         # Convert to relative paths and create rows
         rows = []
         skipped = []
         
-        for abs_path in case_paths:
+        for abs_path, reward_type in case_info:
             vulhub_path = self.absolute_to_relative(abs_path)
             
             # Verify case exists
@@ -192,10 +292,10 @@ class VulhubRCEParquetCreator:
                 skipped.append({"vulhub_path": vulhub_path, "reason": "missing files"})
                 continue
             
-            # Create row
-            row = self.create_row(vulhub_path)
+            # Create row with correct reward type
+            row = self.create_row(vulhub_path, reward_type, difficulty)
             rows.append(row)
-            print(f"✓ {vulhub_path}")
+            print(f"✓ {vulhub_path} ({reward_type})")
         
         # Create DataFrame and save
         if not rows:
@@ -208,13 +308,17 @@ class VulhubRCEParquetCreator:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(output_path, index=False)
         
+        # Count by reward type
+        rce_count = sum(1 for row in rows if json.loads(row['metadata'])['reward_type'] == 'vulhub_rce')
+        read_count = sum(1 for row in rows if json.loads(row['metadata'])['reward_type'] == 'vulhub_read')
+        
         # Print summary
         print()
         print("=" * 70)
         print("Summary")
         print("=" * 70)
-        print(f"Total cases: {len(case_paths)}")
-        print(f"Converted: {len(rows)}")
+        print(f"Total cases: {len(case_info)}")
+        print(f"Converted: {len(rows)} ({rce_count} RCE, {read_count} Read)")
         print(f"Skipped: {len(skipped)}")
         print()
         
@@ -231,16 +335,36 @@ class VulhubRCEParquetCreator:
         
         print("Sample rows (first 3):")
         for idx, row in df.head(3).iterrows():
+            metadata = json.loads(row['metadata'])
             print(f"\n  [{idx + 1}] {row['cve_id']}")
             print(f"      vulhub_path: {row['vulhub_path']}")
-            print(f"      prompt: {row['prompt'][:60]}...")
+            print(f"      reward_type: {metadata['reward_type']}")
+            print(f"      prompt: {row['prompt'][:80]}...")
             print(f"      max_steps: {row['max_steps']}")
-            metadata = json.loads(row['metadata'])
-            print(f"      metadata: {metadata}")
         
         print()
         print("=" * 70)
         print(f"✓ Created {output_path}")
+        print("=" * 70)
+        print()
+        
+        # Pretty-print all rows
+        print("=" * 70)
+        print("All Parquet Rows")
+        print("=" * 70)
+        print()
+        
+        for idx, row in df.iterrows():
+            metadata = json.loads(row['metadata'])
+            print(f"[{idx + 1}/{len(df)}] {row['cve_id']}")
+            print(f"  Path:        {row['vulhub_path']}")
+            print(f"  Reward Type: {metadata['reward_type']}")
+            print(f"  Max Steps:   {row['max_steps']}")
+            print(f"  Prompt:      {row['prompt'][:120]}{'...' if len(row['prompt']) > 120 else ''}")
+            print()
+        
+        print("=" * 70)
+        print(f"Total: {len(df)} cases")
         print("=" * 70)
         
         return len(rows)
@@ -249,20 +373,30 @@ class VulhubRCEParquetCreator:
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(
-        description="Create Vulhub RCE oracle parquet for training",
+        description="Create Vulhub oracle parquet for training (RCE + Read-based)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Create parquet from test list
+  # Create parquet with easy prompts (default)
   python create_vulhub_rce_parquet.py \\
     --input ../vulhub_oracle_and_test/full_test_lists.sh \\
     --output train_vulhub_rce.parquet
+  # Output: train_vulhub_rce_easy.parquet
 
-  # Specify custom benchmark root
+  # Create parquet with medium prompts
   python create_vulhub_rce_parquet.py \\
     --input ../vulhub_oracle_and_test/full_test_lists.sh \\
     --output train_vulhub_rce.parquet \\
+    --difficulty medium
+  # Output: train_vulhub_rce_medium.parquet
+
+  # Create parquet with hard prompts
+  python create_vulhub_rce_parquet.py \\
+    --input ../vulhub_oracle_and_test/full_test_lists.sh \\
+    --output train_vulhub_rce.parquet \\
+    --difficulty hard \\
     --benchmark-root ../benchmark/vulhub
+  # Output: train_vulhub_rce_hard.parquet
 """
     )
     
@@ -276,13 +410,20 @@ Examples:
         "--output",
         type=str,
         required=True,
-        help="Output parquet file path",
+        help="Output parquet file path (difficulty will be auto-appended to filename)",
     )
     parser.add_argument(
         "--benchmark-root",
         type=str,
         default="../benchmark/vulhub",
         help="Path to benchmark/vulhub directory (default: ../benchmark/vulhub)",
+    )
+    parser.add_argument(
+        "--difficulty",
+        type=str,
+        choices=["easy", "medium", "hard"],
+        default="easy",
+        help="Prompt difficulty level to use (default: easy)",
     )
     
     args = parser.parse_args()
@@ -292,9 +433,19 @@ Examples:
     output_file = Path(args.output).resolve()
     benchmark_root = Path(args.benchmark_root).resolve()
     
+    # Auto-append difficulty to output filename
+    # e.g., train_vulhub_rce.parquet -> train_vulhub_rce_easy.parquet
+    output_stem = output_file.stem  # filename without extension
+    output_suffix = output_file.suffix  # .parquet
+    output_parent = output_file.parent
+    
+    # Only append difficulty if not already in filename
+    if not output_stem.endswith(f"_{args.difficulty}"):
+        output_file = output_parent / f"{output_stem}_{args.difficulty}{output_suffix}"
+    
     # Create parquet
     creator = VulhubRCEParquetCreator(benchmark_root)
-    num_converted = creator.create_parquet(input_file, output_file)
+    num_converted = creator.create_parquet(input_file, output_file, args.difficulty)
     
     return 0 if num_converted > 0 else 1
 
