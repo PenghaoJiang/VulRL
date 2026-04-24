@@ -557,11 +557,15 @@ start_worker_router() {
     cd "$WORKER_ORCH_DIR"
     source venv/bin/activate
     
+    # Create logs directory if it doesn't exist
+    mkdir -p logs
+    
     # Start in background with logging
     log_info "Launching Worker Router in background..."
-    nohup bash start_worker_router.sh > "$LOG_DIR/worker_router.log" 2>&1 &
+    # Note: start_worker_router.sh creates its own logs in worker_orchestrator/logs/
+    nohup bash start_worker_router.sh > /dev/null 2>&1 &
     WORKER_ROUTER_PID=$!
-    echo $WORKER_ROUTER_PID > "$LOG_DIR/worker_router.pid"
+    echo $WORKER_ROUTER_PID > "$WORKER_ORCH_DIR/logs/worker_router.pid"
     
     # Wait for startup (with timeout)
     log_info "Waiting for Worker Router to start (max 60s)..."
@@ -572,7 +576,7 @@ start_worker_router() {
         fi
         if [ $i -eq 60 ]; then
             log_error "Worker Router failed to start within 60 seconds"
-            log_info "Check logs at: $LOG_DIR/worker_router.log"
+            log_info "Check logs at: $WORKER_ORCH_DIR/logs/"
             exit 1
         fi
         sleep 1
@@ -669,7 +673,8 @@ launch_training() {
     echo "  Checkpoint Dir: $CHECKPOINT_DIR"
     echo ""
     echo "Worker Router: http://localhost:$WORKER_ROUTER_PORT"
-    echo "Logs: $LOG_DIR/"
+    echo "Worker Router Logs: $WORKER_ORCH_DIR/logs/"
+    echo "Training Logs: $SKYRL_DIR/outputs/"
     echo ""
     
     log_warning "Training is about to start. This may take several hours."
@@ -717,7 +722,8 @@ launch_training() {
     echo ""
     
     log_info "Checkpoints saved to: $CHECKPOINT_DIR"
-    log_info "Logs available at: $LOG_DIR/"
+    log_info "Worker Router logs: $WORKER_ORCH_DIR/logs/"
+    log_info "Training logs: $SKYRL_DIR/outputs/"
     
     cd "$REPO_ROOT"
 }
@@ -743,7 +749,7 @@ cleanup() {
         fi
     fi
     
-    echo "  - Worker Router: kill \$(cat $LOG_DIR/worker_router.pid)"
+    echo "  - Worker Router: kill \$(cat $WORKER_ORCH_DIR/logs/worker_router.pid)"
     
     exit 130
 }
@@ -814,8 +820,9 @@ main() {
     log_success "VulRL training setup and execution finished"
     echo ""
     log_info "Next steps:"
-    echo "  - Check training logs at: $LOG_DIR/"
-    echo "  - Monitor checkpoints at: $CHECKPOINT_DIR"
+    echo "  - Worker Router logs: $WORKER_ORCH_DIR/logs/"
+    echo "  - Training logs: $SKYRL_DIR/outputs/"
+    echo "  - Monitor checkpoints: $CHECKPOINT_DIR"
     echo "  - To run again: bash $0"
     echo ""
 }
