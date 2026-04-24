@@ -69,6 +69,14 @@ LEARNING_RATE="${LEARNING_RATE:-1e-6}"
 #           Set to 1+ for GPU training (much faster, requires free GPU)
 # Check GPU availability: nvidia-smi
 NUM_GPUS="${NUM_GPUS:-1}"
+# Split GPU allocation for non-colocate mode. Defaults to NUM_GPUS when colocate_all=true
+# (everything on the same GPUs via sleep/wake). When colocate_all=false, set these smaller
+# so policy (FSDP) and vLLM inference engines get disjoint GPU sets, e.g.:
+#   COLOCATE_ALL=false POLICY_NUM_GPUS=4 INFERENCE_NUM_ENGINES=4 NUM_GPUS=8
+# Policy/ref share their group; inference engines each take `inference_engine_tensor_parallel_size` GPUs.
+POLICY_NUM_GPUS="${POLICY_NUM_GPUS:-$NUM_GPUS}"
+INFERENCE_NUM_ENGINES="${INFERENCE_NUM_ENGINES:-$NUM_GPUS}"
+COLOCATE_ALL="${COLOCATE_ALL:-true}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/data1/jph/ckpts/vulrl_skyrl_test}"
 
 # GPU Memory Configuration
@@ -307,14 +315,14 @@ uv run --extra vllm \
   data.val_data=null \
   trainer.algorithm.advantage_estimator="grpo" \
   trainer.policy.model.path="$MODEL_TO_USE" \
-  trainer.placement.colocate_all=true \
+  trainer.placement.colocate_all=$COLOCATE_ALL \
   trainer.strategy=fsdp2 \
-  trainer.placement.policy_num_gpus_per_node=$NUM_GPUS \
-  trainer.placement.ref_num_gpus_per_node=$NUM_GPUS \
+  trainer.placement.policy_num_gpus_per_node=$POLICY_NUM_GPUS \
+  trainer.placement.ref_num_gpus_per_node=$POLICY_NUM_GPUS \
   trainer.placement.policy_num_nodes=1 \
   trainer.placement.ref_num_nodes=1 \
   trainer.policy.sequence_parallel_size=1 \
-  generator.num_inference_engines=$NUM_GPUS \
+  generator.num_inference_engines=$INFERENCE_NUM_ENGINES \
   generator.inference_engine_tensor_parallel_size=1 \
   trainer.epochs=$EPOCHS \
   trainer.eval_batch_size=$EVAL_BATCH_SIZE \
@@ -343,6 +351,7 @@ uv run --extra vllm \
   generator.batched=true \
   generator.n_samples_per_prompt="$N_SAMPLES_PER_PROMPT" \
   generator.gpu_memory_utilization="$GPU_MEMORY_UTILIZATION" \
+  generator.weight_sync_backend="${WEIGHT_SYNC_BACKEND:-nccl}" \
   trainer.logger="$LOGGER" \
   trainer.project_name="$PROJECT_NAME" \
   trainer.run_name="$RUN_NAME" \
