@@ -59,6 +59,8 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/cacti/CVE
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/couchdb/CVE-2017-12635
 # DNS Zone Transfer
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/dns/dns-zone-transfer
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-3337
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-5531
 
 # Both rce and read
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/thinkphp/5.0.23-rce
