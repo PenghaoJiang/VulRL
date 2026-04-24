@@ -158,6 +158,35 @@ echo "✓ Code sync complete"
 echo ""
 
 # -----------------------------------------------------------------------------
+# Step 1.5: Pin skyrl-gym path to absolute for Ray worker portability
+# -----------------------------------------------------------------------------
+# skyrl-train/pyproject.toml declares `skyrl-gym = { path = "../skyrl-gym" }`
+# as a committed relative path (so `cd skyrl-train && uv run ...` works in
+# local dev). But Ray packages working_dir to an ephemeral tmpdir, where
+# `../skyrl-gym` resolves to an empty directory and `uv sync` fails with
+# "Distribution not found". Rewriting to this machine's absolute path makes
+# the worker's uv see a real directory on the shared filesystem.
+#
+# Idempotent: matches any existing path (relative or absolute) and replaces
+# it. Safe to run multiple times; a no-op on subsequent launches.
+echo "Step 1.5: Pinning skyrl-gym path for Ray portability..."
+SKYRL_TRAIN_PYPROJECT="$SKYRL_PATH/pyproject.toml"
+SKYRL_GYM_ABS="$REPO_ROOT/SkyRL/skyrl-gym"
+if [ ! -d "$SKYRL_GYM_ABS" ]; then
+    echo "ERROR: skyrl-gym not found at $SKYRL_GYM_ABS"
+    exit 1
+fi
+# Escape | for sed delimiter safety (absolute paths shouldn't contain |).
+sed -i -E "s|^skyrl-gym = \{ path = \"[^\"]*\"( *), editable = true \}$|skyrl-gym = { path = \"$SKYRL_GYM_ABS\" , editable = true }|" "$SKYRL_TRAIN_PYPROJECT"
+if ! grep -q "skyrl-gym = { path = \"$SKYRL_GYM_ABS\"" "$SKYRL_TRAIN_PYPROJECT"; then
+    echo "ERROR: sed rewrite of skyrl-gym path failed; pyproject.toml not updated."
+    grep "^skyrl-gym = " "$SKYRL_TRAIN_PYPROJECT" || true
+    exit 1
+fi
+echo "✓ skyrl-gym pinned to: $SKYRL_GYM_ABS"
+echo ""
+
+# -----------------------------------------------------------------------------
 # Step 2: Check Prerequisites
 # -----------------------------------------------------------------------------
 
