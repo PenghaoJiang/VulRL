@@ -49,7 +49,7 @@ MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-1.5B-Instruct}"
 MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-1.5b}"
 
 # Training parameters (minimal settings for quick test)
-CHECKPOINT_DIR="${CHECKPOINT_DIR:-$HOME/ckpts/vulrl_skyrl_oneclick}"
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-$REPO_ROOT/ckpts/vulrl_skyrl_oneclick}"
 NUM_GPUS="${NUM_GPUS:-1}"
 EPOCHS="${EPOCHS:-1}"
 N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-1}"
