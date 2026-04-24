@@ -76,7 +76,7 @@ CHECKPOINT_DIR="${CHECKPOINT_DIR:-/data1/jph/ckpts/vulrl_skyrl_test}"
 # For 10GB on 98GB GPU: 10/98 ≈ 0.10
 # For 15GB on 98GB GPU: 15/98 ≈ 0.15
 # Default 0.15 (~15GB) - adjust based on available memory
-GPU_MEMORY_UTILIZATION=0.15
+GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.4}"
 
 # Logging
 LOGGER="wandb"  # Options: local, wandb, tensorboard
