@@ -41,12 +41,12 @@ TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_easy.parquet"
 
 # Model configuration
 # For production: Qwen/Qwen2.5-14B-Instruct (~28GB)
-# MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-14B-Instruct}"
-# MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-14b}"
+MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-14B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-14b}"
 
 # For testing: Qwen/Qwen2.5-1.5B-Instruct (~3GB, faster download)
-MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-1.5B-Instruct}"
-MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-1.5b}"
+# MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-1.5B-Instruct}"
+# MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-1.5b}"
 
 # Training parameters (minimal settings for quick test)
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-$REPO_ROOT/ckpts/vulrl_skyrl_oneclick}"
