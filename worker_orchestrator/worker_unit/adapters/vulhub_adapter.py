@@ -306,7 +306,7 @@ Provide visual evidence of successful exploitation.
             except docker.errors.ImageNotFound:
                 self._build_attacker_image()
 
-            # Start container
+            # Start container with TTY and stdin for interactive shell sessions
             self.attacker_container_name = f"attacker_{self.project_name}"
             self.attacker_container_obj = self.docker_client.containers.run(
                 "cve-attacker:latest",
@@ -314,6 +314,8 @@ Provide visual evidence of successful exploitation.
                 network=self.network_name,
                 detach=True,
                 remove=True,
+                tty=True,
+                stdin_open=True,
                 command="tail -f /dev/null"
             )
             
