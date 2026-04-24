@@ -68,9 +68,8 @@ USE_DOCKER_REDIS="${USE_DOCKER_REDIS:-false}"  # Set to 'true' to use Docker for
 NO_SUDO="${NO_SUDO:-false}"  # Set to 'true' to skip system package installation
 SKIP_DEPS_CHECK="${SKIP_DEPS_CHECK:-false}"  # Set to 'true' to assume all deps installed
 
-# Logging
+# Logging (kept for redis.type file if using Docker Redis)
 LOG_DIR="$REPO_ROOT/logs"
-mkdir -p "$LOG_DIR"
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -513,6 +512,8 @@ start_redis() {
         
         if port_in_use $REDIS_PORT; then
             log_success "Redis running in Docker on port $REDIS_PORT"
+            # Create marker file for cleanup
+            mkdir -p "$LOG_DIR"
             echo "redis-docker" > "$LOG_DIR/redis.type"
             return 0
         else
@@ -562,10 +563,10 @@ start_worker_router() {
     
     # Start in background with logging
     log_info "Launching Worker Router in background..."
-    # Note: start_worker_router.sh creates its own logs in worker_orchestrator/logs/
-    nohup bash start_worker_router.sh > /dev/null 2>&1 &
+    # Redirect output to logs directory where it naturally belongs
+    nohup bash start_worker_router.sh > logs/worker_router.log 2>&1 &
     WORKER_ROUTER_PID=$!
-    echo $WORKER_ROUTER_PID > "$WORKER_ORCH_DIR/logs/worker_router.pid"
+    echo $WORKER_ROUTER_PID > logs/worker_router.pid
     
     # Wait for startup (with timeout)
     log_info "Waiting for Worker Router to start (max 60s)..."
