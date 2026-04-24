@@ -737,20 +737,36 @@ cleanup() {
     echo ""
     log_warning "Received interrupt signal. Cleaning up..."
     
-    # Note: We don't stop services as they may be needed for future runs
-    log_info "Services (Redis, Worker Router) are still running."
-    log_info "To stop them manually:"
-    
-    if [ -f "$LOG_DIR/redis.type" ] && [ "$(cat $LOG_DIR/redis.type)" = "redis-docker" ]; then
-        echo "  - Redis (Docker): docker stop vulrl-redis"
-    else
-        echo "  - Redis (system): redis-cli shutdown"
-        if [ "$NO_SUDO" != "true" ]; then
-            echo "            or: sudo systemctl stop redis-server"
+    # Stop Worker Router
+    if [ -f "$WORKER_ORCH_DIR/logs/worker_router.pid" ]; then
+        WORKER_PID=$(cat "$WORKER_ORCH_DIR/logs/worker_router.pid")
+        if kill -0 "$WORKER_PID" 2>/dev/null; then
+            log_info "Stopping Worker Router (PID: $WORKER_PID)..."
+            kill "$WORKER_PID"
+            sleep 2
+            # Force kill if still running
+            if kill -0 "$WORKER_PID" 2>/dev/null; then
+                log_warning "Force killing Worker Router..."
+                kill -9 "$WORKER_PID"
+            fi
+            log_success "Worker Router stopped"
+        else
+            log_info "Worker Router already stopped"
         fi
     fi
     
-    echo "  - Worker Router: kill \$(cat $WORKER_ORCH_DIR/logs/worker_router.pid)"
+    # Note: Keep Redis running as it's a shared service
+    log_info "Redis is still running (shared service)."
+    log_info "To stop Redis manually:"
+    
+    if [ -f "$LOG_DIR/redis.type" ] && [ "$(cat $LOG_DIR/redis.type)" = "redis-docker" ]; then
+        echo "  docker stop vulrl-redis"
+    else
+        echo "  redis-cli shutdown"
+    fi
+    
+    echo ""
+    log_success "Cleanup complete. You can run the script again for a fresh start."
     
     exit 130
 }
