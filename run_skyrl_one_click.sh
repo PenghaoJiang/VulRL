@@ -40,8 +40,13 @@ VULRL_TARGET_DIR="$SKYRL_DIR/vulrl_inside_skyrl_v2"
 TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_easy.parquet"
 
 # Model configuration
-MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-14B-Instruct}"
-MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-14b}"
+# For production: Qwen/Qwen2.5-14B-Instruct (~28GB)
+# MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-14B-Instruct}"
+# MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-14b}"
+
+# For testing: Qwen/Qwen2.5-1.5B-Instruct (~3GB, faster download)
+MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-1.5B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-1.5b}"
 
 # Training parameters (minimal settings for quick test)
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-$HOME/ckpts/vulrl_skyrl_oneclick}"
@@ -430,8 +435,18 @@ download_model() {
     
     log_info "Model: $MODEL_NAME"
     log_info "Destination: $MODEL_DIR"
-    log_warning "Model size: ~28GB (14B parameters)"
-    log_warning "Download time: 30-60 minutes depending on connection speed"
+    
+    # Estimate size based on model name
+    if [[ "$MODEL_NAME" == *"1.5B"* ]]; then
+        log_warning "Model size: ~3GB (1.5B parameters)"
+        log_warning "Download time: 5-10 minutes depending on connection speed"
+    elif [[ "$MODEL_NAME" == *"14B"* ]]; then
+        log_warning "Model size: ~28GB (14B parameters)"
+        log_warning "Download time: 30-60 minutes depending on connection speed"
+    else
+        log_warning "Model size: varies by model"
+        log_warning "Download time: depends on model size and connection speed"
+    fi
     echo ""
     
     # Check if model already exists
@@ -456,10 +471,10 @@ download_model() {
     log_info "You can monitor progress below. Press Ctrl+C to abort."
     echo ""
     
+    # Note: hf command doesn't have --resume-download or --local-dir-use-symlinks
+    # Downloads are automatically resumed if interrupted
     hf download "$MODEL_NAME" \
-        --local-dir "$MODEL_DIR" \
-        --local-dir-use-symlinks False \
-        --resume-download
+        --local-dir "$MODEL_DIR"
     
     # Verify download
     if [ -f "$MODEL_DIR/config.json" ]; then
@@ -602,14 +617,8 @@ verify_training_data() {
     log_success "Training data found: $TRAIN_DATA"
 }
 
-sync_ez_generator_to_skyrl() {
-    log_info "Syncing ez_generator code to SkyRL..."
-    
-    # Check if source directory exists
-    if [ ! -d "$EZ_GENERATOR_SRC" ]; then
-        log_error "ez_generator source not found at: $EZ_GENERATOR_SRC"
-        exit 1
-    fi
+verify_skyrl_and_scripts() {
+    log_info "Verifying SkyRL and training scripts..."
     
     # Check if SkyRL directory exists
     if [ ! -d "$SKYRL_DIR" ]; then
@@ -617,36 +626,21 @@ sync_ez_generator_to_skyrl() {
         log_info "Please ensure SkyRL is cloned at: $REPO_ROOT/SkyRL"
         exit 1
     fi
+    log_success "SkyRL directory found"
     
-    # Create target directory
-    mkdir -p "$VULRL_TARGET_DIR"
-    
-    # Clear existing files
-    log_info "Clearing existing files in target directory..."
-    rm -rf "${VULRL_TARGET_DIR:?}"/*
-    
-    # Copy files
-    log_info "Copying files..."
-    cp -r "$EZ_GENERATOR_SRC"/* "$VULRL_TARGET_DIR/"
-    
-    # Verify critical files
-    if [ ! -f "$VULRL_TARGET_DIR/main_vulrl_skyrl.py" ]; then
-        log_error "main_vulrl_skyrl.py not found after sync"
+    # Check if training script exists
+    if [ ! -f "$EZ_GENERATOR_SRC/run_vulrl_skyrl.sh" ]; then
+        log_error "Training script not found at: $EZ_GENERATOR_SRC/run_vulrl_skyrl.sh"
         exit 1
     fi
-    if [ ! -f "$VULRL_TARGET_DIR/ez_vulrl_generator.py" ]; then
-        log_error "ez_vulrl_generator.py not found after sync"
-        exit 1
-    fi
-    
-    log_success "Code synced to: $VULRL_TARGET_DIR"
+    log_success "Training script found"
 }
 
 prepare_training() {
     log_section "Phase 5: Preparing Training Environment"
     
     verify_training_data
-    sync_ez_generator_to_skyrl
+    verify_skyrl_and_scripts
     
     # Create checkpoint directory
     mkdir -p "$CHECKPOINT_DIR"
@@ -662,13 +656,7 @@ prepare_training() {
 launch_training() {
     log_section "Phase 6: Launching SkyRL Training"
     
-    cd "$SKYRL_DIR"
-    
-    # Set environment variables
-    export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
-    export CUDA_VISIBLE_DEVICES=0
-    export WANDB_MODE="disabled"  # Disable WandB for now
-    export PYTHONPATH="$SKYRL_DIR:${PYTHONPATH}"
+    cd "$EZ_GENERATOR_SRC"
     
     log_info "Configuration:"
     echo "  Model: $MODEL_DIR"
@@ -690,64 +678,31 @@ launch_training() {
     
     sleep 3
     
-    log_info "Starting training..."
+    log_info "Starting training using run_vulrl_skyrl.sh..."
     echo ""
     echo "========================================================================"
     echo "TRAINING OUTPUT (Press Ctrl+C to stop)"
     echo "========================================================================"
     echo ""
     
-    # Launch training with uv
-    uv run --extra vllm \
-        --with docker \
-        --with requests \
-        --with aiohttp \
-        -m vulrl_inside_skyrl_v2.main_vulrl_skyrl \
-        data.train_data="['$TRAIN_DATA']" \
-        data.val_data=null \
-        trainer.algorithm.advantage_estimator="grpo" \
-        trainer.policy.model.path="$MODEL_DIR" \
-        trainer.placement.colocate_all=true \
-        trainer.strategy=fsdp2 \
-        trainer.placement.policy_num_gpus_per_node=$NUM_GPUS \
-        trainer.placement.ref_num_gpus_per_node=$NUM_GPUS \
-        trainer.placement.policy_num_nodes=1 \
-        trainer.placement.ref_num_nodes=1 \
-        trainer.policy.sequence_parallel_size=1 \
-        generator.num_inference_engines=$NUM_GPUS \
-        generator.inference_engine_tensor_parallel_size=1 \
-        trainer.epochs=$EPOCHS \
-        trainer.eval_batch_size=$EVAL_BATCH_SIZE \
-        trainer.eval_before_train=false \
-        trainer.eval_interval=-1 \
-        trainer.update_epochs_per_batch=1 \
-        trainer.train_batch_size=$TRAIN_BATCH_SIZE \
-        trainer.policy_mini_batch_size=$TRAIN_BATCH_SIZE \
-        trainer.micro_forward_batch_size_per_gpu=1 \
-        trainer.micro_train_batch_size_per_gpu=1 \
-        trainer.dump_data_batch=true \
-        trainer.ckpt_interval=10 \
-        trainer.max_prompt_length=2048 \
-        generator.sampling_params.max_generate_length=2048 \
-        generator.sampling_params.logprobs=null \
-        generator.max_input_length=4096 \
-        generator.max_turns=$MAX_STEPS \
-        trainer.policy.optimizer_config.lr=$LEARNING_RATE \
-        trainer.algorithm.use_kl_loss=true \
-        generator.backend=vllm \
-        generator.run_engines_locally=True \
-        generator.enable_http_endpoint=True \
-        generator.http_endpoint_host=0.0.0.0 \
-        generator.http_endpoint_port=17777 \
-        generator.async_engine=true \
-        generator.batched=true \
-        generator.n_samples_per_prompt="$N_SAMPLES_PER_PROMPT" \
-        generator.gpu_memory_utilization="$GPU_MEMORY_UTILIZATION" \
-        trainer.logger="local" \
-        trainer.project_name="vulrl_skyrl" \
-        trainer.run_name="vulrl_oneclick_$(date +%Y%m%d_%H%M%S)" \
-        trainer.resume_mode=null \
-        trainer.ckpt_path="$CHECKPOINT_DIR"
+    # Export configuration as environment variables for the training script
+    export MODEL_PATH="$MODEL_DIR"
+    export TRAIN_DATA="$TRAIN_DATA"
+    export EPOCHS="$EPOCHS"
+    export N_SAMPLES_PER_PROMPT="$N_SAMPLES_PER_PROMPT"
+    export TRAIN_BATCH_SIZE="$TRAIN_BATCH_SIZE"
+    export EVAL_BATCH_SIZE="$EVAL_BATCH_SIZE"
+    export MAX_STEPS="$MAX_STEPS"
+    export LEARNING_RATE="$LEARNING_RATE"
+    export NUM_GPUS="$NUM_GPUS"
+    export CHECKPOINT_DIR="$CHECKPOINT_DIR"
+    export GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION"
+    export WORKER_ORCHESTRATOR_PATH="$WORKER_ORCH_DIR"
+    export SKYRL_PATH="$SKYRL_DIR"
+    export WANDB_MODE="disabled"
+    
+    # Call the existing training script
+    bash run_vulrl_skyrl.sh
     
     TRAIN_EXIT_CODE=$?
     
@@ -827,8 +782,16 @@ main() {
         echo "  - Sudo privileges (or set NO_SUDO=true)"
     fi
     echo "  - Internet connection"
-    echo "  - ~50GB free disk space"
-    echo "  - GPU with 40GB+ VRAM (for 14B model)"
+    if [[ "$MODEL_NAME" == *"1.5B"* ]]; then
+        echo "  - ~20GB free disk space"
+        echo "  - GPU with 4GB+ VRAM (for 1.5B model)"
+    elif [[ "$MODEL_NAME" == *"14B"* ]]; then
+        echo "  - ~50GB free disk space"
+        echo "  - GPU with 40GB+ VRAM (for 14B model)"
+    else
+        echo "  - Sufficient disk space for model + dependencies"
+        echo "  - GPU recommended (size depends on model)"
+    fi
     echo ""
     log_info "Configuration:"
     echo "  NO_SUDO=$NO_SUDO"
