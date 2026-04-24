@@ -62,3 +62,10 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/dns/dns-z
 
 # Both rce and read
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/thinkphp/5.0.23-rce
+
+
+
+# from reverse alphabetic order
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/yapi/mongodb-inj
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/xxl-job/unacc
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/weblogic/CVE-2020-14882
