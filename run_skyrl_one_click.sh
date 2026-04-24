@@ -68,6 +68,15 @@ USE_DOCKER_REDIS="${USE_DOCKER_REDIS:-false}"  # Set to 'true' to use Docker for
 NO_SUDO="${NO_SUDO:-false}"  # Set to 'true' to skip system package installation
 SKIP_DEPS_CHECK="${SKIP_DEPS_CHECK:-false}"  # Set to 'true' to assume all deps installed
 
+# Ray spill / session directory. When unset, Ray writes to /tmp which lives on
+# the root partition on most hosts; a single 14B training run with 8 inference
+# engines can spill 20-30GB and fill small root partitions mid-run, crashing
+# the driver with "No space left on device". Point this at a volume with
+# at least 50GB free (e.g. a data mount). Exported below so child scripts and
+# Ray workers inherit the value.
+#   RAY_TMPDIR=/mnt/data/ray_tmp bash run_skyrl_one_click.sh
+RAY_TMPDIR="${RAY_TMPDIR:-}"
+
 # Logging (kept for redis.type file if using Docker Redis)
 LOG_DIR="$REPO_ROOT/logs"
 
@@ -710,7 +719,24 @@ launch_training() {
     export WORKER_ORCHESTRATOR_PATH="$WORKER_ORCH_DIR"
     export SKYRL_PATH="$SKYRL_DIR"
     export WANDB_MODE="disabled"
-    
+
+    # Redirect Ray temp (object store spill, actor logs, runtime_env bundles)
+    # to a roomy volume if the user set RAY_TMPDIR. Ray defaults to /tmp; on
+    # hosts with small root partitions a 14B run can fill it mid-training.
+    if [ -n "$RAY_TMPDIR" ]; then
+        mkdir -p "$RAY_TMPDIR"
+        export RAY_TMPDIR
+        log_info "Ray temp dir: $RAY_TMPDIR"
+    else
+        # Warn if / has less than 50GB free and RAY_TMPDIR is unset.
+        root_avail_gb=$(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9')
+        if [ -n "$root_avail_gb" ] && [ "$root_avail_gb" -lt 50 ]; then
+            log_warning "/ has only ${root_avail_gb}GB free and RAY_TMPDIR is unset."
+            log_warning "Ray may fill the root partition mid-run. Consider:"
+            log_warning "  RAY_TMPDIR=/path/to/roomy/volume bash run_skyrl_one_click.sh"
+        fi
+    fi
+
     # Call the existing training script
     bash run_vulrl_skyrl.sh
     
