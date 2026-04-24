@@ -418,11 +418,11 @@ setup_worker_orchestrator() {
 # ============================================================================
 
 install_huggingface_cli() {
-    log_info "Installing HuggingFace CLI..."
+    log_info "Installing HuggingFace Hub..."
     cd "$WORKER_ORCH_DIR"
     source venv/bin/activate
-    pip install huggingface-hub[cli] --quiet
-    log_success "HuggingFace CLI installed"
+    pip install huggingface-hub --quiet
+    log_success "HuggingFace Hub installed"
 }
 
 download_model() {
@@ -444,7 +444,7 @@ download_model() {
     # Install HuggingFace CLI if needed
     cd "$WORKER_ORCH_DIR"
     source venv/bin/activate
-    if ! command_exists huggingface-cli; then
+    if ! command_exists hf; then
         install_huggingface_cli
     fi
     
@@ -456,7 +456,7 @@ download_model() {
     log_info "You can monitor progress below. Press Ctrl+C to abort."
     echo ""
     
-    huggingface-cli download "$MODEL_NAME" \
+    hf download "$MODEL_NAME" \
         --local-dir "$MODEL_DIR" \
         --local-dir-use-symlinks False \
         --resume-download
