@@ -76,7 +76,7 @@ CHECKPOINT_DIR="${CHECKPOINT_DIR:-/data1/jph/ckpts/vulrl_skyrl_test}"
 # For 10GB on 98GB GPU: 10/98 ≈ 0.10
 # For 15GB on 98GB GPU: 15/98 ≈ 0.15
 # Default 0.15 (~15GB) - adjust based on available memory
-GPU_MEMORY_UTILIZATION=0.15
+GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.15}"
 
 # Logging
 LOGGER="wandb"  # Options: local, wandb, tensorboard
@@ -217,7 +217,15 @@ echo ""
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 
 # CUDA configuration
-export CUDA_VISIBLE_DEVICES=0
+# Respect pre-set CUDA_VISIBLE_DEVICES; otherwise expose GPUs 0..NUM_GPUS-1
+if [ -z "${CUDA_VISIBLE_DEVICES+x}" ]; then
+    if [ "$NUM_GPUS" -le 0 ]; then
+        export CUDA_VISIBLE_DEVICES=""
+    else
+        CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((NUM_GPUS - 1)))
+        export CUDA_VISIBLE_DEVICES
+    fi
+fi
 
 # WandB configuration (disable for local logging)
 export WANDB_API_KEY="${WANDB_API_KEY:-dummy_key_for_local_logging}"
