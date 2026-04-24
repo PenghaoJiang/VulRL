@@ -193,7 +193,7 @@ class EzVulRLGenerator(SkyRLGymGenerator):
                 "prompt": prompt_text,
                 "llm_endpoint": self.llm_endpoint,
                 "model_name": self.llm_model_name,
-                "max_steps": _resolved_max_steps(env_extras),
+                "max_steps": 30, ## _resolved_max_steps(env_extras),
                 "temperature": sampling_params.get("temperature", 0.7),
                 "max_tokens": max_tokens,
                 "timeout": int(self.polling_config["timeout"]),
