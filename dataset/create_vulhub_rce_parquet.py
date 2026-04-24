@@ -42,9 +42,9 @@ class VulhubRCEParquetCreator:
     Create parquet for Vulhub oracle training (RCE and Read-based).
     
     Path Handling:
-    - Parquet stores full paths from repo root: "benchmark/vulhub/aj-report/CNVD-2024-15077"
-    - Internally strips "benchmark/vulhub/" prefix when constructing paths
-    - This makes the parquet portable across machines while keeping code simple
+    - Parquet stores case-specific paths: "elasticsearch/CVE-2015-1427"
+    - These paths are relative to benchmark/vulhub directory
+    - VulhubAdapter expects this format and constructs full paths at runtime
     """
     
     def __init__(self, benchmark_root: Path):
@@ -104,59 +104,42 @@ class VulhubRCEParquetCreator:
     
     def absolute_to_relative(self, abs_path: str) -> str:
         """
-        Convert absolute path to relative path from repo root.
+        Convert absolute path to vulhub_path (case-specific path).
         
-        This method finds 'VulRL' (the repo name) in the path and takes
-        everything after it to create a portable relative path.
+        Extracts just the case path after 'vulhub/' directory, which is what
+        VulhubAdapter expects (e.g., "elasticsearch/CVE-2015-1427").
         
         Args:
-            abs_path: /data1/jph/VulRL/benchmark/vulhub/aj-report/CNVD-2024-15077
+            abs_path: /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-1427
             
         Returns:
-            benchmark/vulhub/aj-report/CNVD-2024-15077
+            elasticsearch/CVE-2015-1427
         """
         # Normalize path separators
         normalized_path = abs_path.replace('\\', '/')
         parts = normalized_path.split('/')
         
-        # Find the index of 'VulRL' directory (repo root)
+        # Find the index of 'vulhub' directory
         try:
-            repo_idx = parts.index('VulRL')
-            # Take everything after 'VulRL/'
-            relative_parts = parts[repo_idx + 1:]
+            vulhub_idx = parts.index('vulhub')
+            # Take everything after 'vulhub/'
+            relative_parts = parts[vulhub_idx + 1:]
             return '/'.join(relative_parts)
         except ValueError:
-            # Fallback: if 'VulRL' not found, try to find 'vulhub' and include parent dirs
-            try:
-                vulhub_idx = parts.index('vulhub')
-                # Include 'benchmark/vulhub' and everything after
-                if vulhub_idx > 0 and parts[vulhub_idx - 1] == 'benchmark':
-                    relative_parts = parts[vulhub_idx - 1:]
-                    return '/'.join(relative_parts)
-                else:
-                    # Just vulhub and after
-                    relative_parts = parts[vulhub_idx:]
-                    return '/'.join(relative_parts)
-            except ValueError:
-                # Last resort: take last 3 segments (likely: benchmark/vulhub/case or vulhub/category/case)
-                return '/'.join(parts[-3:]) if len(parts) >= 3 else '/'.join(parts[-2:]) if len(parts) >= 2 else parts[-1]
+            # Fallback: if 'vulhub' not found, take last 2 segments (category/case)
+            return '/'.join(parts[-2:]) if len(parts) >= 2 else parts[-1]
     
     def verify_case_exists(self, vulhub_path: str) -> bool:
         """
         Verify that case directory exists in benchmark root.
         
         Args:
-            vulhub_path: Relative path from repo root (e.g., "benchmark/vulhub/aj-report/CNVD-2024-15077")
+            vulhub_path: Case-specific path (e.g., "elasticsearch/CVE-2015-1427")
             
         Returns:
             True if case directory exists with required files
         """
-        # Strip benchmark/vulhub prefix if present since benchmark_root already points there
-        path_to_check = vulhub_path
-        if vulhub_path.startswith('benchmark/vulhub/'):
-            path_to_check = vulhub_path[len('benchmark/vulhub/'):]
-        
-        case_dir = self.benchmark_root / path_to_check
+        case_dir = self.benchmark_root / vulhub_path
         
         if not case_dir.exists():
             return False
@@ -176,18 +159,13 @@ class VulhubRCEParquetCreator:
         Read prompt from oracle_prompt.txt based on difficulty.
         
         Args:
-            vulhub_path: Relative path from repo root (e.g., "benchmark/vulhub/aj-report/CNVD-2024-15077")
+            vulhub_path: Case-specific path (e.g., "elasticsearch/CVE-2015-1427")
             difficulty: Prompt difficulty level ("easy", "medium", or "hard")
             
         Returns:
             The prompt text, or default prompt if not found
         """
-        # Strip benchmark/vulhub prefix if present since benchmark_root already points there
-        path_to_check = vulhub_path
-        if vulhub_path.startswith('benchmark/vulhub/'):
-            path_to_check = vulhub_path[len('benchmark/vulhub/'):]
-        
-        case_dir = self.benchmark_root / path_to_check
+        case_dir = self.benchmark_root / vulhub_path
         oracle_prompt_file = case_dir / "oracle_prompt.txt"
         
         if not oracle_prompt_file.exists():
@@ -220,17 +198,15 @@ class VulhubRCEParquetCreator:
         Create a single parquet row for a case.
         
         Args:
-            vulhub_path: Relative path from repo root (e.g., "benchmark/vulhub/aj-report/CNVD-2024-15077")
+            vulhub_path: Case-specific path (e.g., "elasticsearch/CVE-2015-1427")
             reward_type: Reward type ("vulhub_rce" or "vulhub_read")
             difficulty: Prompt difficulty level ("easy", "medium", or "hard")
             
         Returns:
             Dict with parquet columns
         """
-        # cve_id is the case-specific part (strip benchmark/vulhub prefix for backward compatibility)
+        # cve_id is the case-specific path
         cve_id = vulhub_path
-        if vulhub_path.startswith('benchmark/vulhub/'):
-            cve_id = vulhub_path[len('benchmark/vulhub/'):]
         
         # Read prompt from oracle_prompt.txt based on difficulty
         prompt = self.read_prompt(vulhub_path, difficulty)

@@ -83,10 +83,12 @@ LOGGER="wandb"  # Options: local, wandb, tensorboard
 PROJECT_NAME="${PROJECT_NAME:-vulrl_skyrl}"
 RUN_NAME="${RUN_NAME:-vulrl_test_$(date +%Y%m%d_%H%M%S)}"
 
-# Path configuration (CRITICAL - these must match your remote machine)
-WORKER_ORCHESTRATOR_PATH="/data1/jph/VulRL/worker_orchestrator"
-EZ_GENERATOR_PATH="$WORKER_ORCHESTRATOR_PATH/ez_generator"
-SKYRL_PATH="/data1/jph/VulRL/SkyRL/skyrl-train"
+# Path configuration (relative to script location)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+EZ_GENERATOR_PATH="$SCRIPT_DIR"
+WORKER_ORCHESTRATOR_PATH="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SKYRL_PATH="$REPO_ROOT/SkyRL/skyrl-train"
 VULRL_INSIDE_SKYRL_PATH="$SKYRL_PATH/vulrl_inside_skyrl_v2"
 
 # -----------------------------------------------------------------------------

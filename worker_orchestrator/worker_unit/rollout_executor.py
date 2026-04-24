@@ -266,6 +266,19 @@ class RolloutExecutor:
                         },
                     )
                 elif agent_type == "ctf":
+                    # Map reward_type to config file
+                    reward_type = request.metadata.get("reward_type", task_type)
+                    config_file = request.metadata.get("agent_config_file")
+                    
+                    if config_file is None:
+                        # Auto-select config based on reward_type
+                        if reward_type in ["vulhub_rce", "vulhub_read"]:
+                            # Use minimal config for Vulhub (prompts already complete in parquet)
+                            config_file = Path(__file__).parent / "agent" / "config" / "default_empty.yaml"
+                        else:
+                            # Use full CTF config for other cases
+                            config_file = None  # CTFAgent will use default_ctf.yaml
+                    
                     agent = CTFAgent(
                         env=env.adapter,
                         llm_client=llm_client,
@@ -274,7 +287,7 @@ class RolloutExecutor:
                             "temperature": request.temperature,
                             "max_tokens": request.max_tokens,
                             "step_limit": request.max_steps,
-                            "config_file": request.metadata.get("agent_config_file"),
+                            "config_file": config_file,
                         },
                     )
                 else:

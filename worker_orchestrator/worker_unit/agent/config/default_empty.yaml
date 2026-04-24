@@ -1,0 +1,89 @@
+# Minimal config for Vulhub cases with pre-written prompts
+# Used for vulhub_rce and vulhub_read reward types
+# Prompts are already complete in the parquet, no additional templates needed
+
+system_template: |-
+  You are a security testing agent.
+  
+  RESPONSE FORMAT:
+  Format your output as:
+  DISCUSSION
+  [Your reasoning]
+  ```
+  [single bash command]
+  ```
+  
+  Rules:
+  - Only ONE command per response
+  - Wait for output before next command
+  - Use bash commands only (curl, python3 script.py, etc.)
+  - No interactive sessions (no bare python3, vim, gdb)
+
+instance_template: |-
+  {description}
+  
+  (Open file: {open_file})
+  (Current directory: {working_dir})
+  bash-$
+
+next_step_template: |-
+  {observation}
+  (Open file: {open_file})
+  (Current directory: {working_dir})
+  bash-$
+
+next_step_no_output_template: |-
+  Command completed with no output.
+  (Open file: {open_file})
+  (Current directory: {working_dir})
+  bash-$
+
+state_command:
+  name: state
+  code: |
+    state() {
+      local working_dir="$PWD";
+      local open_file="n/a";
+      local interactive_session="n/a";
+      echo '{"open_file": "'$open_file'", "working_dir": "'$working_dir'", "interactive_session": "'$interactive_session'"}'
+    };
+
+parse_function: ThoughtActionParser
+env_variables:
+  WINDOW: 100
+  OVERLAP: 2
+  CURRENT_LINE: 0
+  CURRENT_FILE: ''
+  SEARCH_RESULTS: ()
+  SEARCH_FILES: ()
+  SEARCH_INDEX: 0
+
+command_files: []
+
+parse_command: ParseCommandDetailed
+history_processor: Last5Observations
+
+blocklist:
+- vim
+- vi
+- emacs
+- nano
+- nohup
+- gdb
+- python3  # Block bare python3 (interactive)
+- python   # Block bare python (interactive)
+
+blocklist_standalone:
+- bash
+- sh
+- /bin/bash
+- /bin/sh
+- exit
+
+blocklist_error_template: |
+  Interactive operation '{name}' is not supported.
+  Use bash commands only (e.g., python3 script.py, not bare python3).
+
+summarizer_config:
+  function: SimpleSummarizer
+  window_length: 100
