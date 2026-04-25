@@ -41,12 +41,12 @@ TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_easy.parquet"
 
 # Model configuration
 # For production: Qwen/Qwen2.5-14B-Instruct (~28GB)
-# MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-14B-Instruct}"
-# MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-14b}"
+MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-14B-Instruct}"
+MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-14b}"
 
 # For testing: Qwen/Qwen2.5-1.5B-Instruct (~3GB, faster download)
-MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-1.5B-Instruct}"
-MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-1.5b}"
+# MODEL_NAME="${MODEL_NAME:-Qwen/Qwen2.5-1.5B-Instruct}"
+# MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-1.5b}"
 
 # Training parameters (minimal settings for quick test)
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-$REPO_ROOT/ckpts/vulrl_skyrl_oneclick}"
@@ -83,27 +83,29 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1" >&2
 }
 
 log_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "${GREEN}✓${NC} $1" >&2
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo -e "${YELLOW}⚠${NC} $1" >&2
 }
 
 log_error() {
-    echo -e "${RED}✗${NC} $1"
+    echo -e "${RED}✗${NC} $1" >&2
 }
 
 log_section() {
-    echo ""
-    echo "============================================================================"
-    echo "$1"
-    echo "============================================================================"
-    echo ""
+    {
+        echo ""
+        echo "============================================================================"
+        echo "$1"
+        echo "============================================================================"
+        echo ""
+    } >&2
 }
 
 # Check if command exists
@@ -187,36 +189,38 @@ check_required_commands() {
     # If NO_SUDO mode and missing deps, show instructions and exit
     if [ "$NO_SUDO" = "true" ] && [ ${#missing_deps[@]} -gt 0 ]; then
         log_error "NO_SUDO mode enabled but missing dependencies: ${missing_deps[*]}"
-        echo ""
-        echo "Please install the following manually:"
-        echo ""
-        for dep in "${missing_deps[@]}"; do
-            case "$dep" in
-                python3.12)
-                    echo "  Python 3.12:"
-                    echo "    Ubuntu/Debian: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.12 python3.12-venv"
-                    echo "    Or download from: https://www.python.org/downloads/"
-                    ;;
-                uv)
-                    echo "  uv:"
-                    echo "    curl -LsSf https://astral.sh/uv/install.sh | sh"
-                    ;;
-                docker)
-                    echo "  Docker:"
-                    echo "    Ubuntu/Debian: sudo apt-get install docker.io"
-                    echo "    Or follow: https://docs.docker.com/engine/install/"
-                    ;;
-                docker-compose)
-                    echo "  Docker Compose:"
-                    echo "    Ubuntu/Debian: sudo apt-get install docker-compose-plugin"
-                    ;;
-                redis-server)
-                    echo "  Redis (or set USE_DOCKER_REDIS=true):"
-                    echo "    Ubuntu/Debian: sudo apt-get install redis-server"
-                    ;;
-            esac
-        done
-        echo ""
+        {
+            echo ""
+            echo "Please install the following manually:"
+            echo ""
+            for dep in "${missing_deps[@]}"; do
+                case "$dep" in
+                    python3.12)
+                        echo "  Python 3.12:"
+                        echo "    Ubuntu/Debian: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.12 python3.12-venv"
+                        echo "    Or download from: https://www.python.org/downloads/"
+                        ;;
+                    uv)
+                        echo "  uv:"
+                        echo "    curl -LsSf https://astral.sh/uv/install.sh | sh"
+                        ;;
+                    docker)
+                        echo "  Docker:"
+                        echo "    Ubuntu/Debian: sudo apt-get install docker.io"
+                        echo "    Or follow: https://docs.docker.com/engine/install/"
+                        ;;
+                    docker-compose)
+                        echo "  Docker Compose:"
+                        echo "    Ubuntu/Debian: sudo apt-get install docker-compose-plugin"
+                        ;;
+                    redis-server)
+                        echo "  Redis (or set USE_DOCKER_REDIS=true):"
+                        echo "    Ubuntu/Debian: sudo apt-get install redis-server"
+                        ;;
+                esac
+            done
+            echo ""
+        } >&2
         exit 1
     fi
     
