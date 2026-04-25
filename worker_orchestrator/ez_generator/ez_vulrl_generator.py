@@ -128,6 +128,14 @@ class EzVulRLGenerator(SkyRLGymGenerator):
         print(f"  LLM Endpoint: {self.llm_endpoint}")
         print(f"  LLM Model: {self.llm_model_name}")
         print(f"  Polling: timeout={self.polling_config['timeout']}s, interval={self.polling_config['poll_interval']}s")
+
+        # Rewrite 0.0.0.0 / :: (bind addresses) to 127.0.0.1 so the worker can actually connect
+        host_resolved = self.llm_endpoint_host
+        if host_resolved in ("0.0.0.0", "::"):
+            host_resolved = "127.0.0.1"
+        self.llm_endpoint = f"http://{host_resolved}:{self.llm_endpoint_port}"
+        print(f"[CONSISTENCY-CHECK] SkyRL→Worker LLM endpoint = {self.llm_endpoint}")
+        print(f"[CONSISTENCY-CHECK] SkyRL→Worker model_name  = {self.llm_model_name}")
     
     async def vulrl_agent_loop(
         self,

@@ -85,6 +85,8 @@ class RolloutExecutor:
         try:
             # 1. Initialize LLM client
             print("[RolloutExecutor] Initializing LLM client...")
+            print(f"[CONSISTENCY-CHECK] worker received endpoint = {request.llm_endpoint!r}")
+            print(f"[CONSISTENCY-CHECK] worker received model    = {request.model_name!r}")
             llm_client = InferenceEngineClientWrapper(
                 endpoint=request.llm_endpoint,
                 model_name=request.model_name,
