@@ -9,6 +9,7 @@ import time
 import tempfile
 import json
 import re
+import fcntl
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
 import docker
@@ -300,11 +301,18 @@ Provide visual evidence of successful exploitation.
     def _start_attacker(self):
         """Start attacker container using Docker SDK"""
         try:
-            # Check if image exists
-            try:
-                self.docker_client.images.get("cve-attacker:latest")
-            except docker.errors.ImageNotFound:
-                self._build_attacker_image()
+            # Check if image exists. Serialize check-and-build across concurrent
+            # workers with a file lock; otherwise multiple workers race to build
+            # the same `cve-attacker:latest` tag and the docker daemon rejects
+            # the later retags with AlreadyExists because the old tag is held
+            # by running attacker containers.
+            lock_path = Path(tempfile.gettempdir()) / "vulrl-cve-attacker-build.lock"
+            with open(lock_path, "w") as lock_f:
+                fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+                try:
+                    self.docker_client.images.get("cve-attacker:latest")
+                except docker.errors.ImageNotFound:
+                    self._build_attacker_image()
 
             # Start container with TTY and stdin for interactive shell sessions
             self.attacker_container_name = f"attacker_{self.project_name}"
@@ -327,12 +335,17 @@ Provide visual evidence of successful exploitation.
             
             print(f"[VulhubAdapter] Started attacker container: {self.attacker_container_name}")
         except Exception as e:
-            print(f"[VulhubAdapter] Warning: Failed to start attacker: {e}")
+            # Previously this was swallowed as a warning, which left the adapter
+            # in a half-initialized state (attacker_container_obj=None, executor=None)
+            # and caused downstream TypeError: "expected str, bytes or os.PathLike, not NoneType"
+            # in CTFAgent. Re-raise so the rollout fails with the actual root cause.
+            print(f"[VulhubAdapter] Failed to start attacker: {e}")
+            raise RuntimeError(f"Attacker container setup failed: {e}") from e
 
     def _build_attacker_image(self):
         """Build attacker image using Docker SDK"""
         dockerfile = """FROM python:3.11-slim
-RUN apt-get update && apt-get install -y curl wget netcat-traditional nmap dnsutils iputils-ping nikto && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl wget netcat-traditional nmap dnsutils iputils-ping && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir requests sqlmap
 WORKDIR /attacker
 CMD ["tail", "-f", "/dev/null"]

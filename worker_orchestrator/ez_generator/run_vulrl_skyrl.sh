@@ -69,6 +69,14 @@ LEARNING_RATE="${LEARNING_RATE:-1e-6}"
 #           Set to 1+ for GPU training (much faster, requires free GPU)
 # Check GPU availability: nvidia-smi
 NUM_GPUS="${NUM_GPUS:-1}"
+# Split GPU allocation for non-colocate mode. Defaults to NUM_GPUS when colocate_all=true
+# (everything on the same GPUs via sleep/wake). When colocate_all=false, set these smaller
+# so policy (FSDP) and vLLM inference engines get disjoint GPU sets, e.g.:
+#   COLOCATE_ALL=false POLICY_NUM_GPUS=4 INFERENCE_NUM_ENGINES=4 NUM_GPUS=8
+# Policy/ref share their group; inference engines each take `inference_engine_tensor_parallel_size` GPUs.
+POLICY_NUM_GPUS="${POLICY_NUM_GPUS:-$NUM_GPUS}"
+INFERENCE_NUM_ENGINES="${INFERENCE_NUM_ENGINES:-$NUM_GPUS}"
+COLOCATE_ALL="${COLOCATE_ALL:-true}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/data1/jph/ckpts/vulrl_skyrl_test}"
 
 # GPU Memory Configuration
@@ -155,6 +163,35 @@ if [ ! -f "$VULRL_INSIDE_SKYRL_PATH/ez_vulrl_generator.py" ]; then
 fi
 
 echo "✓ Code sync complete"
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 1.5: Pin skyrl-gym path to absolute for Ray worker portability
+# -----------------------------------------------------------------------------
+# skyrl-train/pyproject.toml declares `skyrl-gym = { path = "../skyrl-gym" }`
+# as a committed relative path (so `cd skyrl-train && uv run ...` works in
+# local dev). But Ray packages working_dir to an ephemeral tmpdir, where
+# `../skyrl-gym` resolves to an empty directory and `uv sync` fails with
+# "Distribution not found". Rewriting to this machine's absolute path makes
+# the worker's uv see a real directory on the shared filesystem.
+#
+# Idempotent: matches any existing path (relative or absolute) and replaces
+# it. Safe to run multiple times; a no-op on subsequent launches.
+echo "Step 1.5: Pinning skyrl-gym path for Ray portability..."
+SKYRL_TRAIN_PYPROJECT="$SKYRL_PATH/pyproject.toml"
+SKYRL_GYM_ABS="$REPO_ROOT/SkyRL/skyrl-gym"
+if [ ! -d "$SKYRL_GYM_ABS" ]; then
+    echo "ERROR: skyrl-gym not found at $SKYRL_GYM_ABS"
+    exit 1
+fi
+# Escape | for sed delimiter safety (absolute paths shouldn't contain |).
+sed -i -E "s|^skyrl-gym = \{ path = \"[^\"]*\"( *), editable = true \}$|skyrl-gym = { path = \"$SKYRL_GYM_ABS\" , editable = true }|" "$SKYRL_TRAIN_PYPROJECT"
+if ! grep -q "skyrl-gym = { path = \"$SKYRL_GYM_ABS\"" "$SKYRL_TRAIN_PYPROJECT"; then
+    echo "ERROR: sed rewrite of skyrl-gym path failed; pyproject.toml not updated."
+    grep "^skyrl-gym = " "$SKYRL_TRAIN_PYPROJECT" || true
+    exit 1
+fi
+echo "✓ skyrl-gym pinned to: $SKYRL_GYM_ABS"
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -278,14 +315,14 @@ uv run --extra vllm \
   data.val_data=null \
   trainer.algorithm.advantage_estimator="grpo" \
   trainer.policy.model.path="$MODEL_TO_USE" \
-  trainer.placement.colocate_all=true \
+  trainer.placement.colocate_all=$COLOCATE_ALL \
   trainer.strategy=fsdp2 \
-  trainer.placement.policy_num_gpus_per_node=$NUM_GPUS \
-  trainer.placement.ref_num_gpus_per_node=$NUM_GPUS \
+  trainer.placement.policy_num_gpus_per_node=$POLICY_NUM_GPUS \
+  trainer.placement.ref_num_gpus_per_node=$POLICY_NUM_GPUS \
   trainer.placement.policy_num_nodes=1 \
   trainer.placement.ref_num_nodes=1 \
   trainer.policy.sequence_parallel_size=1 \
-  generator.num_inference_engines=$NUM_GPUS \
+  generator.num_inference_engines=$INFERENCE_NUM_ENGINES \
   generator.inference_engine_tensor_parallel_size=1 \
   trainer.epochs=$EPOCHS \
   trainer.eval_batch_size=$EVAL_BATCH_SIZE \
@@ -314,6 +351,7 @@ uv run --extra vllm \
   generator.batched=true \
   generator.n_samples_per_prompt="$N_SAMPLES_PER_PROMPT" \
   generator.gpu_memory_utilization="$GPU_MEMORY_UTILIZATION" \
+  generator.weight_sync_backend="${WEIGHT_SYNC_BACKEND:-nccl}" \
   trainer.logger="$LOGGER" \
   trainer.project_name="$PROJECT_NAME" \
   trainer.run_name="$RUN_NAME" \

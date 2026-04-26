@@ -541,7 +541,7 @@ Obtain the flag and submit it using the required format when your runtime suppor
 
     def _build_attacker_image(self) -> None:
         dockerfile = """FROM python:3.11-slim
-RUN apt-get update && apt-get install -y curl wget netcat-traditional nmap dnsutils iputils-ping nikto && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl wget netcat-traditional nmap dnsutils iputils-ping && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir requests sqlmap
 WORKDIR /attacker
 CMD ["tail", "-f", "/dev/null"]
