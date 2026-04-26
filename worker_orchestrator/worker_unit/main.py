@@ -78,10 +78,14 @@ class WorkerUnit:
             # Store result
             self.redis_client.store_result(task_id, result.dict(), ttl=3600)
             
-            # Update task status
+            # Update task status. Include error/error_type so the router's
+            # /api/rollout/status endpoint (which reads from task_metadata)
+            # can surface the real failure reason instead of returning null.
             self.redis_client.set_task_metadata(task_id, {
                 "status": result.status,
                 "completed_at": result.completed_at,
+                "error": result.error,
+                "error_type": result.error_type,
             })
             
             # Update worker status
