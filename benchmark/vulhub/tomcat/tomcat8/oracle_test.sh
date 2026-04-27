@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# oracle_test.sh for Tomcat8 Weak Credentials + WAR Upload RCE
+# Checks if oracle_solution.sh successfully created /tmp/exploit.txt
+# This is a write-based RCE test (for run_oracle_and_test_4_rce.sh)
+
+set -euo pipefail
+
+if [[ -z "${ORACLE_CASE_DIR:-}" ]]; then
+  echo "[oracle_test] Error: ORACLE_CASE_DIR not set" >&2
+  exit 2
+fi
+
+if [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
+  echo "[oracle_test] Error: COMPOSE_PROJECT_NAME not set" >&2
+  exit 2
+fi
+
+# Find the tomcat container
+tomcat_cid=$(docker ps -q --filter "name=${COMPOSE_PROJECT_NAME}.*tomcat")
+
+if [[ -z "$tomcat_cid" ]]; then
+  echo "[oracle_test] Error: tomcat container not found" >&2
+  exit 2
+fi
+
+echo "[oracle_test] Checking for /tmp/exploit.txt in container $tomcat_cid" >&2
+
+# Check if the marker file exists in the tomcat container
+if docker exec "$tomcat_cid" test -f /tmp/exploit.txt 2>/dev/null; then
+  echo "[oracle_test] PASS: marker file exists" >&2
+  exit 0
+else
+  echo "[oracle_test] FAIL: marker file missing" >&2
+  exit 1
+fi
