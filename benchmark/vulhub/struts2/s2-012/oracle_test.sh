@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# oracle_test.sh for Struts2 S2-008 - Dual-mode: Read flag OR write exploit marker
+# oracle_test.sh for Struts2 S2-012 - Dual-mode: Read flag OR write exploit marker
 # Pass if EITHER flag is read to stdout OR /tmp/exploit.txt is created
 
 set -euo pipefail
