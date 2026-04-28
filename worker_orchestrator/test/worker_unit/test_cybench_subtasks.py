@@ -36,12 +36,12 @@ def main() -> int:
     prompt_messages = json.loads(row["prompt"])
     metadata = json.loads(row["metadata"])
     user_prompt = prompt_messages[-1]["content"]
-    subtasks = metadata.get("cybench_subtasks") or []
+    subtasks = metadata.get("ctf_subtasks") or metadata.get("cybench_subtasks") or []
 
     assert metadata.get("metadata_source") == "parquet"
     assert len(subtasks) == 4
     assert metadata.get("subtask_reward_weight") == 0.1
-    assert "## Cybench Subtasks" in user_prompt
+    assert "## CTF Subtasks" in user_prompt
     assert "submit_subtask <index> '<answer>'" in user_prompt
 
     augmented_prompt = CTFAgent._augment_prompt_with_subtasks(user_prompt, subtasks)
@@ -52,6 +52,7 @@ def main() -> int:
             "expected_flag": metadata["expected_flag"],
             "ctfmix_supported": True,
             "flag_format": metadata["flag_format"],
+            "ctf_subtasks": subtasks,
             "cybench_subtasks": subtasks,
             "subtask_reward_weight": metadata["subtask_reward_weight"],
         }

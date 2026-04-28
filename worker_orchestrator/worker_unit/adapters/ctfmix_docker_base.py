@@ -257,9 +257,13 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
         self._challenge_data: Dict[str, Any] = dict(
             self.parquet_metadata.get("challenge_info") or {}
         )
-        self.cybench_subtasks: List[Dict[str, Any]] = list(
-            self.parquet_metadata.get("cybench_subtasks") or []
+        self.ctf_subtasks: List[Dict[str, Any]] = list(
+            self.parquet_metadata.get("ctf_subtasks")
+            or self.parquet_metadata.get("cybench_subtasks")
+            or []
         )
+        # Backward-compatible alias used elsewhere in the current codebase/tests.
+        self.cybench_subtasks: List[Dict[str, Any]] = list(self.ctf_subtasks)
         self._runtime_compose_path: Optional[Path] = None
         self._compose_was_temp = False
 
@@ -346,7 +350,7 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
         print(
             f"[{self.ADAPTER_LABEL}] challenge_dir={self.challenge_dir} "
             f"supported={self.ctfmix_supported} reason={self.skip_reason!r} "
-            f"metadata_source={self.metadata_source} subtasks={len(self.cybench_subtasks)}"
+            f"metadata_source={self.metadata_source} subtasks={len(self.ctf_subtasks)}"
         )
         if not self.ctfmix_supported:
             print(f"[{self.ADAPTER_LABEL}] Skipping docker compose ({self.skip_reason})")
@@ -575,6 +579,7 @@ CMD ["tail", "-f", "/dev/null"]
             "ctfmix_supported": self.ctfmix_supported,
             "expected_flag": self.expected_flag,
             "metadata_source": self.metadata_source,
+            "ctf_subtask_count": len(self.ctf_subtasks),
             "cybench_subtask_count": len(self.cybench_subtasks),
             "skip_reason": self.skip_reason,
         }

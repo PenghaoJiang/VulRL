@@ -40,7 +40,7 @@ class RewardRouter:
             return XbowReward(self.config)
         if self.task_type == "cvebench":
             return CVEBenchReward(self.config)
-        if self.task_type == "nyu_ctf":
+        if self.task_type in {"nyu_ctf", "nyu_ctf_subtask"}:
             return NYUCTFFlagReward(self.config)
         if self.task_type == "cybench_docker":
             return CybenchFlagReward(self.config)
