@@ -64,6 +64,7 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticse
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/WooYun-2015-110216
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/Remote-Streaming-Fileread
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2017-12629-XXE
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2019-17558
 
 # Both rce and read
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/thinkphp/5.0.23-rce
