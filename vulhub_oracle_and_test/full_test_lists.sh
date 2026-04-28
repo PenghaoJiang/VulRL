@@ -63,6 +63,7 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticse
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-5531
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/WooYun-2015-110216
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/Remote-Streaming-Fileread
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2017-12629-XXE
 
 # Both rce and read
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/thinkphp/5.0.23-rce
@@ -90,3 +91,4 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/supervisor
 #       Requires 51 failed login attempts to trigger lockout, then blank password login.
 #       Auth bypass not working reliably despite lockout success. Too slow (51 HTTP requests)
 #       and environment-sensitive for practical RL training.
+
