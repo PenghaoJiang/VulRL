@@ -78,9 +78,17 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/vite/CNVD
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/uwsgi/CVE-2018-7490
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/unomi/CVE-2020-13942
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/tomcat/tomcat8
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/thinkphp/2-rce
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/teamcity/CVE-2023-42793
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/supervisor/CVE-2017-11610
 # SKIP: vite/CVE-2025-30208 - Vite's server.allowedHosts restricts to localhost only.
 #       Exploit works from host (localhost:port) but blocked from attacker container (web:5173).
 #       Incompatible with attacker-container testing approach.
 # SKIP: tomcat/CVE-2025-24813 - Requires Java in attacker container for ysoserial payload generation.
 #       Attacker container lacks Java, making deserialization gadget creation impractical.
 #       Would require Java installation during exploit (too slow for RL training).
+# SKIP: tikiwiki/CVE-2020-15906 - Multi-step chain (auth bypass + SSTI) unreliable in test environment.
+#       Requires 51 failed login attempts to trigger lockout, then blank password login.
+#       Auth bypass not working reliably despite lockout success. Too slow (51 HTTP requests)
+#       and environment-sensitive for practical RL training.
+
