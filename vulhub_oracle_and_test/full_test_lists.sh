@@ -96,6 +96,7 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2-053
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2-066
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2-067
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/showdoc/CNVD-2020-26585
 # SKIP: vite/CVE-2025-30208 - Vite's server.allowedHosts restricts to localhost only.
 #       Exploit works from host (localhost:port) but blocked from attacker container (web:5173).
 #       Incompatible with attacker-container testing approach.
@@ -107,3 +108,21 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2
 #       Auth bypass not working reliably despite lockout success. Too slow (51 HTTP requests)
 #       and environment-sensitive for practical RL training.
 
+
+# oracle generation prompt:
+# for case [], you have example from benchmark/vulhub/aj-report/CNVD-2024-15077, 
+# and from benchmark/vulhub/1panel/CVE-2024-39907; they are examples using 
+# vulhub_oracle_and_test\run_oracle_and_test_4_rce.sh or using 
+# vulhub_oracle_and_test\run_oracle_and_test_4_read.sh to perform either read or write 
+# exploitations exactly following the guide from README.md. You should learn from those files first.
+# Before generation, you may assess if this case is applicable for read or write exploitation validation.
+# If applicable, then you should generate oracle_flag_setup.sh, oracle_prompt.txt, 
+# oracle_solution.sh and oracle_test.sh. If not applicable, you can skip this case with reasoning in conversation.
+# After generation, you should test your oracle solution by running command like:
+# bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2-053
+# bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2-066
+# to ensure your oracle solution is working correctly. After successful testing, 
+# you should provide a block of bash command using echo to generate the files you just written
+# to make it easy to replicate those files on another machine. You can assume the bash command 
+# is executed under path benchmark/vulhub/. 
+# Then add the cases you generated to vulhub_oracle_and_test\full_test_lists.sh
