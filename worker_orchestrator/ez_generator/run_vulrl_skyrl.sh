@@ -58,10 +58,10 @@ TRAIN_DATA="${TRAIN_DATA:-/data1/jph/VulRL/SkyRL/skyrl-train/vulrl_inside_skyrl/
 
 # Training parameters - MINIMAL FOR TESTING
 EPOCHS="${EPOCHS:-1}"                             # 1 epoch -> number of generations of llm
-N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-2}" # 1 sample per prompt -> number of same cases per epoch
+N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-8}" # 8 rollouts per prompt: GRPO needs in-group variance
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-3}"         # 3 parallel tasks -> number of parallel tasks per generator loop
-EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-4}"           # 3 parallel eval tasks 
-MAX_STEPS="${MAX_STEPS:-10}"                      # Max steps per rollout
+EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-4}"           # 3 parallel eval tasks
+MAX_STEPS="${MAX_STEPS:-30}"                      # Max steps per rollout (vulhub multi-step exploit chains)
 LEARNING_RATE="${LEARNING_RATE:-1e-6}"
 
 # System configuration (from run_training.sh)
@@ -335,10 +335,10 @@ uv run --extra vllm \
   trainer.micro_train_batch_size_per_gpu=1 \
   trainer.dump_data_batch=true \
   trainer.ckpt_interval=10 \
-  trainer.max_prompt_length=2048 \
-  generator.sampling_params.max_generate_length=2048 \
+  trainer.max_prompt_length=8192 \
+  generator.sampling_params.max_generate_length=4096 \
   generator.sampling_params.logprobs=null \
-  generator.max_input_length=4096 \
+  generator.max_input_length=12288 \
   generator.max_turns=$MAX_STEPS \
   trainer.policy.optimizer_config.lr=$LEARNING_RATE \
   trainer.algorithm.use_kl_loss=true \

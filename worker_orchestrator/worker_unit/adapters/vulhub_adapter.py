@@ -72,9 +72,17 @@ class VulhubAdapter(BaseEnvAdapter):
         self.attacker_container_obj: Optional[docker.models.containers.Container] = None
         self.network_name: Optional[str] = None
         self.service_url: Optional[str] = None
-        
+
         # Docker executor (created after attacker container starts)
         self.executor: Optional[DockerExecutor] = None
+
+        # Baseline snapshot for side_effect detection (Step 6).
+        # Populated in setup() after target container is up. Consumed by
+        # vulhub_progress_helper.make_side_effect_probe() to detect
+        # post-rollout state changes (new files, new processes).
+        self.baseline_marker_path: Optional[str] = None    # e.g. "/tmp/.vulrl_marker_<proj>"
+        self.baseline_pid_set: Optional[set] = None         # set of (pid, comm) tuples at setup time
+        self.baseline_taken_at: Optional[float] = None      # epoch seconds, for diagnostics
 
     def _detect_compose_command(self):
         """Detect docker compose command"""
@@ -143,7 +151,71 @@ class VulhubAdapter(BaseEnvAdapter):
         # Build service URL (get from target info)
         self._get_target_info()
 
+        # Step 6: take baseline snapshot of target container state for
+        # side-effect detection. Best-effort — failures here don't break setup.
+        try:
+            self._take_baseline_snapshot()
+        except Exception as e:
+            print(f"[VulhubAdapter] Baseline snapshot failed (non-fatal): {e}")
+
         print(f"[VulhubAdapter] Environment ready: {self.service_url}")
+
+    def _take_baseline_snapshot(self) -> None:
+        """
+        Capture target-container state for later side-effect diff (Step 6).
+
+        Operations:
+          1. touch a unique marker file in /tmp
+          2. snapshot current process list (pid + comm)
+
+        Sets:
+          self.baseline_marker_path  — for find -newer
+          self.baseline_pid_set      — set of (pid, comm) tuples
+          self.baseline_taken_at     — epoch seconds (debug)
+        """
+        if not self.target_container_obj:
+            print(f"[VulhubAdapter] _take_baseline_snapshot: no target container; skipping")
+            return
+
+        marker = f"/tmp/.vulrl_marker_{self.project_name}"
+
+        # 1. Touch marker file
+        try:
+            res = self.target_container_obj.exec_run(
+                ["sh", "-c", f"touch {marker} && echo OK"],
+                demux=False,
+            )
+            output = res.output.decode("utf-8", errors="replace") if isinstance(res.output, bytes) else (res.output or "")
+            if "OK" in output:
+                self.baseline_marker_path = marker
+                print(f"[VulhubAdapter] Baseline marker created: {marker}")
+            else:
+                print(f"[VulhubAdapter] Baseline marker FAILED: {output[:200]}")
+        except Exception as e:
+            print(f"[VulhubAdapter] Baseline marker exception: {e}")
+
+        # 2. Snapshot process list (pid, comm) — exclude kernel threads
+        try:
+            res = self.target_container_obj.exec_run(
+                ["sh", "-c", "ps -eo pid,comm --no-headers 2>/dev/null || ps -eo pid,comm"],
+                demux=False,
+            )
+            output = res.output.decode("utf-8", errors="replace") if isinstance(res.output, bytes) else (res.output or "")
+
+            pids = set()
+            for line in output.splitlines():
+                parts = line.strip().split(None, 1)
+                if len(parts) == 2 and parts[0].isdigit():
+                    pids.add((parts[0], parts[1]))
+            if pids:
+                self.baseline_pid_set = pids
+                print(f"[VulhubAdapter] Baseline pid_set captured: {len(pids)} processes")
+            else:
+                print(f"[VulhubAdapter] Baseline pid_set EMPTY (ps output not parseable)")
+        except Exception as e:
+            print(f"[VulhubAdapter] Baseline pid_set exception: {e}")
+
+        self.baseline_taken_at = time.time()
 
     def teardown(self) -> None:
         """Clean up Vulhub environment"""
