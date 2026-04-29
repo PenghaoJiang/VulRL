@@ -63,6 +63,7 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticse
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-5531
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/WooYun-2015-110216
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/Remote-Streaming-Fileread
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2019-0193
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2017-12629-XXE
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/solr/CVE-2019-17558
 
@@ -128,3 +129,4 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/redis/CVE-
 # to make it easy to replicate those files on another machine. You can assume the bash command 
 # is executed under path benchmark/vulhub/. 
 # Then add the cases you generated to vulhub_oracle_and_test\full_test_lists.sh
+
