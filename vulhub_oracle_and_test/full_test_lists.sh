@@ -103,6 +103,7 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/redis/CVE-
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/php/CVE-2012-1823
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/php/CVE-2018-19518
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/pgadmin/CVE-2022-4223
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/opensmtpd/CVE-2020-7247
 # SKIP: vite/CVE-2025-30208 - Vite's server.allowedHosts restricts to localhost only.
 #       Exploit works from host (localhost:port) but blocked from attacker container (web:5173).
 #       Incompatible with attacker-container testing approach.
