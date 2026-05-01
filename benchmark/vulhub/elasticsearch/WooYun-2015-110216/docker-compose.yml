@@ -2,5 +2,5 @@ services:
   es:
     image: vulhub/elasticsearch:1.5.1-with-tomcat
     ports:
-    - 9200
-    - 8080
+    - "127.0.0.1::9200"
+    - "127.0.0.1::8080"

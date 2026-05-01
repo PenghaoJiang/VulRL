@@ -4,7 +4,7 @@ services:
     depends_on:
     - mysql
     ports:
-    - 80
+    - "127.0.0.1::80"
     volumes:
     - ./www/controller:/var/www/application/index/controller
     - ./www/model:/var/www/application/index/model

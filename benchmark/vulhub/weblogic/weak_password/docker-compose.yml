@@ -4,5 +4,5 @@ services:
     volumes:
     - ./web:/root/Oracle/Middleware/user_projects/domains/base_domain/autodeploy
     ports:
-    - 7001
-    - 5556
+    - "127.0.0.1::7001"
+    - "127.0.0.1::5556"
