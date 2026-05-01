@@ -9,7 +9,7 @@ services:
   web:
     image: vulhub/yapi:1.9.2
     ports:
-    - 3000
+    - "127.0.0.1::3000"
     volumes:
     - ./config.json:/usr/config.json
     environment:

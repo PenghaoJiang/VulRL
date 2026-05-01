@@ -5,4 +5,4 @@ services:
     volumes:
     - ./struts-actionchaining.xml:/usr/local/tomcat/webapps/ROOT/WEB-INF/classes/struts-actionchaining.xml
     ports:
-    - 8080
+    - "127.0.0.1::8080"

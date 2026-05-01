@@ -4,4 +4,4 @@ services:
     image: vulhub/jupyter-notebook:5.2.2
     command: start-notebook.sh --NotebookApp.token=''
     ports:
-    - 8888
+    - "127.0.0.1::8888"

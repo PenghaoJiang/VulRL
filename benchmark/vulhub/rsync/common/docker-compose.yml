@@ -2,4 +2,4 @@ services:
   rsync:
     build: .
     ports:
-    - 873
+    - "127.0.0.1::873"

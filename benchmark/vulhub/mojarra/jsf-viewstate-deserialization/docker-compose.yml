@@ -3,4 +3,4 @@ services:
   web:
     image: vulhub/mojarra:2.1.28
     ports:
-    - 8080
+    - "127.0.0.1::8080"

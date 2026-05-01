@@ -7,7 +7,7 @@ services:
     depends_on:
     - web
     ports:
-    - 80
+    - "127.0.0.1::80"
   web:
     image: vulhub/uwsgi-python:2.0.17
     command: uwsgi --socket 0.0.0.0:8000 --chdir /usr/src --module server --uid www-data
@@ -15,4 +15,4 @@ services:
     volumes:
     - ./files/server.py:/usr/src/server.py
     ports:
-    - 8000
+    - "127.0.0.1::8000"
