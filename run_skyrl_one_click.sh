@@ -718,7 +718,8 @@ launch_training() {
     export GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION"
     export WORKER_ORCHESTRATOR_PATH="$WORKER_ORCH_DIR"
     export SKYRL_PATH="$SKYRL_DIR"
-    export WANDB_MODE="disabled"
+    export WANDB_MODE="online"
+    export WANDB_API_KEY="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"
 
     # Redirect Ray temp (object store spill, actor logs, runtime_env bundles)
     # to a roomy volume if the user set RAY_TMPDIR. Ray defaults to /tmp; on
