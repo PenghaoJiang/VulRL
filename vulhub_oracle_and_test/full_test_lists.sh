@@ -110,6 +110,8 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/node/CVE-
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/nexus/CVE-2024-4956
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/mini_httpd/CVE-2018-18778
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/metabase/CVE-2021-41277
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/joomla/CVE-2023-23752
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/joomla/CVE-2017-8917
 # SKIP: vite/CVE-2025-30208 - Vite's server.allowedHosts restricts to localhost only.
 #       Exploit works from host (localhost:port) but blocked from attacker container (web:5173).
 #       Incompatible with attacker-container testing approach.
@@ -139,4 +141,3 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/metabase/
 # to make it easy to replicate those files on another machine. You can assume the bash command 
 # is executed under path benchmark/vulhub/. 
 # Then add the cases you generated to vulhub_oracle_and_test\full_test_lists.sh
-
