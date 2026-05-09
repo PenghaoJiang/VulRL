@@ -3,9 +3,9 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/aj-report/
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apache-druid/CVE-2021-25646
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2020-13945
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2021-45232
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11981
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2014-3120
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-1427
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11981
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2014-3120
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-1427
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/erlang/CVE-2025-32433
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/flask/ssti
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17518
@@ -114,6 +114,10 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/joomla/CV
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/joomla/CVE-2017-8917
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/webmin/CVE-2019-15107
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/yapi/unacc
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/zabbix/CVE-2016-10134
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/zabbix/CVE-2017-2824
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/zabbix/CVE-2020-11800
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/docker/unauthorized-rce
 # SKIP: vite/CVE-2025-30208 - Vite's server.allowedHosts restricts to localhost only.
 #       Exploit works from host (localhost:port) but blocked from attacker container (web:5173).
 #       Incompatible with attacker-container testing approach.
