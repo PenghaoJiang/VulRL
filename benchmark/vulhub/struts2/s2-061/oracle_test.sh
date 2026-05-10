@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-# Deterministically verify that the submitted output is exactly the dynamic flag.
 set -euo pipefail
-
 actual="$(printf '%s' "${1:-}" | tr -d '\r' | sed -n '1p')"
 expected="${2:-${ORACLE_FLAG:-}}"
-
-if [[ -z "$expected" ]]; then
-  exit 2
-fi
-
+[[ -n "$expected" ]] || exit 2
 [[ "$actual" == "$expected" ]]
