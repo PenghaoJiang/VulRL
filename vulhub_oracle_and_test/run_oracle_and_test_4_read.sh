@@ -120,8 +120,12 @@ echo "[run_oracle_and_test] case dir: $VULHUB_CASE_DIR"
 echo "[run_oracle_and_test] waiting ${STARTUP_SLEEP}s for services..."
 sleep "$STARTUP_SLEEP"
 
-# First container id from compose ps -q
-mapfile -t CIDS < <(cd "$VULHUB_CASE_DIR" && compose ps -q | sed '/^$/d')
+# First container id from compose ps -q. Avoid mapfile so the runner works with
+# macOS's default Bash 3.2 as well as newer GNU Bash.
+CIDS=()
+while IFS= read -r cid; do
+  [[ -n "$cid" ]] && CIDS+=("$cid")
+done < <(cd "$VULHUB_CASE_DIR" && compose ps -q | sed '/^$/d')
 if [[ ${#CIDS[@]} -eq 0 ]]; then
   echo "Error: no containers reported by compose ps -q" >&2
   exit 1
@@ -130,7 +134,10 @@ TARGET_CID="${CIDS[0]}"
 TARGET_NAME="$(docker inspect -f '{{.Name}}' "$TARGET_CID" | sed 's|^/||')"
 
 # First network name on that container
-mapfile -t NETS < <(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{printf "%s\n" $k}}{{end}}' "$TARGET_CID" | sed '/^$/d')
+NETS=()
+while IFS= read -r net; do
+  [[ -n "$net" ]] && NETS+=("$net")
+done < <(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{printf "%s\n" $k}}{{end}}' "$TARGET_CID" | sed '/^$/d')
 if [[ ${#NETS[@]} -eq 0 ]]; then
   echo "Error: target container has no attached networks" >&2
   exit 1

@@ -1,21 +1,10 @@
 # vulhub RCE, create /tmp/exploit.txt
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/aj-report/CNVD-2024-15077
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apache-druid/CVE-2021-25646
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2020-13945
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2021-45232
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11981
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2014-3120
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-1427
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/erlang/CVE-2025-32433
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/flask/ssti
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17518
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/geoserver/CVE-2024-36401
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/gitlab/CVE-2021-22205
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/gitlist/CVE-2018-1000533
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/gitlab/CVE-2021-22205
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/hadoop/unauthorized-yarn
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-41773
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-42013
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/jimureport/CVE-2023-4450
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/jupyter/notebook-rce
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/langflow/CVE-2025-3248
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/libssh/CVE-2018-10933
@@ -46,6 +35,17 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apache-cx
 # file read via malicious MySQL LOCAL INFILE
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/adminer/CVE-2021-43008
 # controlled file write
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/aj-report/CNVD-2024-15077
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apache-druid/CVE-2021-25646
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2020-13945
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2021-45232
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/erlang/CVE-2025-32433
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/flask/ssti
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/geoserver/CVE-2024-36401
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/gitlist/CVE-2018-1000533
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-41773
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-42013
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/jimureport/CVE-2023-4450
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11978
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-17526
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2016-3088

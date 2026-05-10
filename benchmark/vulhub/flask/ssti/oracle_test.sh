@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
+# Deterministically verify that the submitted output is exactly the dynamic flag.
 set -euo pipefail
 
-cd "${ORACLE_CASE_DIR}"
-compose() { docker compose -p "${COMPOSE_PROJECT_NAME}" "$@"; }
+actual="${1:-}"
+expected="${2:-${ORACLE_FLAG:-}}"
 
-web_cid=$(compose ps -q web)
-[[ -n "$web_cid" ]] || { echo "[oracle_test] ERROR: web container not found" >&2; exit 2; }
+actual="$(printf '%s' "$actual" | tr -d '\r' | sed -n '1p')"
 
-echo "[oracle_test] web container id: $web_cid"
-echo "[oracle_test] probe: test -f /tmp/exploit.txt inside web container (Flask SSTI marker)"
-
-if docker exec "$web_cid" test -f /tmp/exploit.txt 2>/dev/null; then
-  echo "[oracle_test] PASS: marker file exists"
-  docker exec "$web_cid" ls -la /tmp/exploit.txt 2>/dev/null | head -5 || true
-  exit 0
-else
-  echo "[oracle_test] FAIL: marker file missing"
-  docker exec "$web_cid" ls -la /tmp 2>/dev/null | head -30 || true
-  exit 1
+if [[ -z "$expected" ]]; then
+  exit 2
 fi
+
+if [[ "$actual" == "$expected" ]]; then
+  exit 0
+fi
+
+exit 1
