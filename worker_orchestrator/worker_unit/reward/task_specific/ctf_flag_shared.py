@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 SUBMISSION_RE = re.compile(
     r"<<SUBMISSION\|\|(.+?)\|\|SUBMISSION>>", re.DOTALL | re.IGNORECASE
+)
+SUBTASK_RE = re.compile(
+    r"<<SUBTASK\|\|(\d+)\|\|(.+?)\|\|SUBTASK>>", re.DOTALL | re.IGNORECASE
 )
 
 
@@ -54,6 +57,16 @@ def validate_flag_submission(submission: str, expected: str) -> bool:
     return False
 
 
+def validate_answer_submission(submission: str, expected: str) -> bool:
+    submission = (submission or "").strip()
+    expected = (expected or "").strip()
+    if not expected:
+        return False
+    if submission == expected:
+        return True
+    return validate_flag_submission(submission, expected)
+
+
 def trajectory_text_tail(trajectory: List[Dict[str, Any]], max_chars: int = 12000) -> str:
     parts: List[str] = []
     for step in trajectory:
@@ -84,3 +97,68 @@ def compute_binary_flag_reward(
         if validate_flag_submission(cand, expected_flag):
             return 1.0
     return 0.0
+
+
+def extract_subtask_submissions_from_trajectory(
+    trajectory: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    matches: List[Dict[str, Any]] = []
+    for step_idx, step in enumerate(trajectory):
+        for source in ("observation", "action"):
+            text = step.get(source) or ""
+            if not isinstance(text, str):
+                text = str(text)
+            for match in SUBTASK_RE.finditer(text):
+                try:
+                    index = int(match.group(1).strip())
+                except ValueError:
+                    continue
+                matches.append(
+                    {
+                        "step": step_idx,
+                        "source": source,
+                        "index": index,
+                        "answer": match.group(2).strip(),
+                    }
+                )
+    return matches
+
+
+def get_ctf_subtasks_from_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return list(config.get("ctf_subtasks") or config.get("cybench_subtasks") or [])
+
+
+def compute_subtask_bonus_from_trajectory(
+    trajectory: List[Dict[str, Any]],
+    subtasks: List[Dict[str, Any]],
+    *,
+    expected_flag: Optional[str],
+    per_subtask_reward: float,
+    log_prefix: str,
+) -> Tuple[float, List[int]]:
+    correct_indices = set()
+    seen_submissions = extract_subtask_submissions_from_trajectory(trajectory)
+    for submission in seen_submissions:
+        index = submission["index"]
+        if index < 1 or index > len(subtasks):
+            print(
+                f"[{log_prefix}] Ignoring out-of-range subtask submission: {submission}"
+            )
+            continue
+        subtask = subtasks[index - 1]
+        expected_answer = str(subtask.get("answer") or "").strip()
+        if expected_flag and expected_answer == str(expected_flag).strip():
+            print(
+                f"[{log_prefix}] Skipping final-flag subtask for bonus calculation: index={index}"
+            )
+            continue
+        matched = validate_answer_submission(submission["answer"], expected_answer)
+        print(
+            f"[{log_prefix}] Subtask submission: "
+            f"index={index} submitted={submission['answer']!r} "
+            f"expected={expected_answer!r} matched={matched} step={submission['step']}"
+        )
+        if matched:
+            correct_indices.add(index)
+    correct_sorted = sorted(correct_indices)
+    return per_subtask_reward * len(correct_sorted), correct_sorted

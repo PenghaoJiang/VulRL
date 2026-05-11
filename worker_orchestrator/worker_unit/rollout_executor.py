@@ -40,6 +40,43 @@ _DEFAULT_CTFMIX_ROOT = _REPO_ROOT / "benchmark" / "ctfmix"
 _DEFAULT_VULHUB_BENCHMARK_ROOT = _REPO_ROOT / "benchmark" / "vulhub"
 
 
+def _get_ctf_subtasks(metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return list(metadata.get("ctf_subtasks") or metadata.get("cybench_subtasks") or [])
+
+
+def _format_ctf_subtasks_for_prompt(subtasks: List[Dict[str, Any]]) -> str:
+    if not subtasks:
+        return ""
+    lines = [
+        "## CTF Subtasks",
+        "Record solved checkpoints with `submit_subtask <index> '<answer>'` before the final flag submission.",
+        "Only record a subtask after you have solid evidence for the exact answer.",
+    ]
+    for subtask in subtasks:
+        idx = subtask.get("index", "?")
+        title = str(subtask.get("title") or "").strip()
+        question = str(subtask.get("question") or "").strip()
+        answer_format = str(subtask.get("answer_format") or "").strip() or "free-form"
+        prefix = f"{idx}. "
+        if title:
+            prefix += f"{title}: "
+        lines.append(f"{prefix}{question} (answer format: `{answer_format}`)")
+    return "\n".join(lines)
+
+
+def _augment_prompt_with_ctf_subtasks(
+    prompt: str, subtasks: List[Dict[str, Any]]
+) -> str:
+    if not prompt or not subtasks:
+        return prompt
+    if "## CTF Subtasks" in prompt or "## Cybench Subtasks" in prompt:
+        return prompt
+    subtask_block = _format_ctf_subtasks_for_prompt(subtasks)
+    if not subtask_block:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{subtask_block}"
+
+
 class RolloutExecutor:
     """Execute a complete VulRL rollout."""
     
@@ -79,6 +116,20 @@ class RolloutExecutor:
         print(f"Prompt: {request.prompt}")
         print(f"Max Steps: {request.max_steps}")
         print()
+
+        ctf_subtasks = _get_ctf_subtasks(request.metadata)
+        initial_prompt = request.prompt
+        if task_type in ("nyu_ctf", "nyu_ctf_subtask", "cybench_docker") and ctf_subtasks:
+            initial_prompt = _augment_prompt_with_ctf_subtasks(
+                initial_prompt, ctf_subtasks
+            )
+            print(
+                f"[RolloutExecutor] CTF subtasks from parquet: task_type={task_type} count={len(ctf_subtasks)}"
+            )
+            print(
+                "[RolloutExecutor] Augmented prompt preview:\n"
+                f"{initial_prompt[:2000]}"
+            )
         
         env = None
 
@@ -109,7 +160,7 @@ class RolloutExecutor:
                     "timeout": request.metadata.get("timeout", 30),
                     "backend_config": {"cvebench_root": cvebench_root},
                 }
-            elif task_type in ("nyu_ctf", "cybench_docker"):
+            elif task_type in ("nyu_ctf", "nyu_ctf_subtask", "cybench_docker"):
                 ctfmix_root = request.metadata.get("ctfmix_root") or str(
                     _DEFAULT_CTFMIX_ROOT
                 )
@@ -123,9 +174,11 @@ class RolloutExecutor:
                     "task_id": request.cve_id,
                     "max_steps": request.max_steps,
                     "timeout": request.metadata.get("timeout", 30),
+                    "parquet_metadata": request.metadata,
                     "ctfmix_root": ctfmix_root,
                     "challenge_relative_path": challenge_rel,
                     "backend_config": {
+                        "parquet_metadata": request.metadata,
                         "ctfmix_root": ctfmix_root,
                         "challenge_relative_path": challenge_rel,
                     },
@@ -297,7 +350,7 @@ class RolloutExecutor:
 
                 print(f"[RolloutExecutor] Starting {agent.get_name()}...")
                 trajectory = await agent.run(
-                    initial_prompt=request.prompt,
+                    initial_prompt=initial_prompt,
                     max_steps=request.max_steps,
                     temperature=request.temperature,
                     max_tokens=request.max_tokens,
@@ -386,7 +439,7 @@ class RolloutExecutor:
                 if env:
                     env.close()
                     print("[RolloutExecutor] Environment closed")
-                if task_type in ("nyu_ctf", "cybench_docker"):
+                if task_type in ("nyu_ctf", "nyu_ctf_subtask", "cybench_docker"):
                     reward_config = {
                         "expected_flag": getattr(
                             env.adapter, "expected_flag", None
@@ -396,6 +449,13 @@ class RolloutExecutor:
                         ),
                         "flag_format": request.metadata.get(
                             "flag_format", "flag{...}"
+                        ),
+                        "ctf_subtasks": _get_ctf_subtasks(request.metadata),
+                        "cybench_subtasks": request.metadata.get(
+                            "cybench_subtasks", []
+                        ),
+                        "subtask_reward_weight": request.metadata.get(
+                            "subtask_reward_weight", 0.1
                         ),
                     }
                     reward_calculator = RewardCalculator(

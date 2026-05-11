@@ -19,7 +19,7 @@ def _make_env_adapter(config: Dict[str, Any]):
     task_type = (config.get("task_type") or "vulhub").lower()
     if task_type == "cvebench":
         return CVEBenchAdapter(config)
-    if task_type == "nyu_ctf":
+    if task_type in {"nyu_ctf", "nyu_ctf_subtask"}:
         return NYUCTFAdapter(config)
     if task_type == "cybench_docker":
         return CybenchDockerAdapter(config)

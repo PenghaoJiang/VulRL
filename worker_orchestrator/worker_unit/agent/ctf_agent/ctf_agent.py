@@ -33,6 +33,81 @@ class CTFAgent(BaseAgent):
     
     This wraps the CTFMix Agent class and adapts it to worker_unit's interface.
     """
+
+    @staticmethod
+    def _extract_ctf_subtasks(parquet_metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return list(
+            parquet_metadata.get("ctf_subtasks")
+            or parquet_metadata.get("cybench_subtasks")
+            or []
+        )
+
+    @staticmethod
+    def _collect_task_config(env, step_limit: int) -> Dict[str, Any]:
+        parquet_metadata = dict(getattr(env, "parquet_metadata", {}) or {})
+        challenge_info = dict(
+            parquet_metadata.get("challenge_info")
+            or getattr(env, "_challenge_data", {})
+            or {}
+        )
+        files = challenge_info.get("files") or []
+        if isinstance(files, str):
+            files = [files]
+        ctf_subtasks = CTFAgent._extract_ctf_subtasks(parquet_metadata)
+        return {
+            "task_id": env.config.get("task_id", "unknown"),
+            "max_steps": step_limit,
+            "service_url": getattr(env, "service_url", ""),
+            "flag_format": parquet_metadata.get("flag_format")
+            or challenge_info.get("flag_format")
+            or challenge_info.get("answer_format")
+            or "FLAG{...}",
+            "category_friendly": challenge_info.get("category") or "security",
+            "name": challenge_info.get("name") or env.config.get("task_id", "unknown"),
+            "points": challenge_info.get("points") or 100,
+            "description": challenge_info.get("description") or "",
+            "files": files,
+            "server_description": f"The target server is accessible at {getattr(env, 'service_url', '')}",
+            "ctf_subtasks": ctf_subtasks,
+            "cybench_subtasks": ctf_subtasks,
+            "metadata_source": getattr(env, "metadata_source", "unknown"),
+            "agent_prompt_context": parquet_metadata.get("agent_prompt_context")
+            or challenge_info.get("description")
+            or "",
+        }
+
+    @staticmethod
+    def _format_ctf_subtasks(subtasks: List[Dict[str, Any]]) -> str:
+        if not subtasks:
+            return ""
+        lines = [
+            "## CTF Subtasks",
+            "Use `submit_subtask <index> '<answer>'` immediately when you solve a checkpoint.",
+            "Only record a subtask when you have evidence for the exact answer.",
+        ]
+        for subtask in subtasks:
+            idx = subtask.get("index", "?")
+            title = str(subtask.get("title") or "").strip()
+            question = str(subtask.get("question") or "").strip()
+            answer_format = str(subtask.get("answer_format") or "").strip() or "free-form"
+            prefix = f"{idx}. "
+            if title:
+                prefix += f"{title}: "
+            lines.append(f"{prefix}{question} (answer format: `{answer_format}`)")
+        return "\n".join(lines)
+
+    @classmethod
+    def _augment_prompt_with_subtasks(
+        cls, initial_prompt: str, subtasks: List[Dict[str, Any]]
+    ) -> str:
+        if not initial_prompt or not subtasks:
+            return initial_prompt
+        if "## CTF Subtasks" in initial_prompt or "## Cybench Subtasks" in initial_prompt:
+            return initial_prompt
+        subtask_block = cls._format_ctf_subtasks(subtasks)
+        if not subtask_block:
+            return initial_prompt
+        return f"{initial_prompt.rstrip()}\n\n{subtask_block}"
     
     def __init__(
         self,
@@ -82,13 +157,15 @@ class CTFAgent(BaseAgent):
         )
         
         # Create runtime adapter
+        task_config = self._collect_task_config(env, self.step_limit)
+        print(
+            "[CTFAgent] Adapter metadata: "
+            f"source={task_config.get('metadata_source')} "
+            f"subtasks={len(task_config.get('ctf_subtasks') or [])}"
+        )
         self.runtime_adapter = VulhubRuntimeAdapter(
             vulhub_adapter=env,
-            task_config={
-                "task_id": env.config.get("task_id", "unknown"),
-                "max_steps": self.step_limit,
-                "service_url": env.service_url,
-            }
+            task_config=task_config,
         )
         
         # CTFMix Agent() builds OpenAIModel once before we replace it with LLMAdapter; that path
@@ -142,17 +219,35 @@ class CTFAgent(BaseAgent):
         # Prepare setup args for CTFMix Agent
         # Include CTF-specific template variables with defaults for Vulhub tasks
         task_config = self.runtime_adapter.task_config
+        ctf_subtasks = list(
+            task_config.get("ctf_subtasks") or task_config.get("cybench_subtasks") or []
+        )
+        base_prompt = (
+            str(task_config.get("agent_prompt_context") or "").strip()
+            or initial_prompt
+        )
+        prompt_for_model = self._augment_prompt_with_subtasks(
+            base_prompt, ctf_subtasks
+        )
+        if ctf_subtasks:
+            print(
+                f"[CTFAgent] Prompt augmented with {len(ctf_subtasks)} CTF subtasks"
+            )
+        print(
+            "[CTFAgent] Prompt preview passed to model:\n"
+            f"{prompt_for_model[:2500]}"
+        )
         setup_args = {
             "task_id": self.runtime_adapter.task_id,
             "service_url": self.runtime_adapter.service_url,
-            "issue": initial_prompt,  # CTFMix calls it "issue"
+            "issue": prompt_for_model,  # CTFMix calls it "issue"
             # CTF template variables (used in default_ctf.yaml) - use defaults if not provided
             "flag_format": task_config.get("flag_format") or "FLAG{...}",
             "category_friendly": task_config.get("category_friendly") or "security",
             "name": task_config.get("name") or self.runtime_adapter.task_id,
             "points": task_config.get("points") or 100,
-            "description": task_config.get("description") or initial_prompt,
-            "files": task_config.get("files") or "N/A",
+            "description": prompt_for_model,
+            "files": ", ".join(task_config.get("files") or []) or "N/A",
             "server_description": task_config.get("server_description") or f"The target server is accessible at {self.runtime_adapter.service_url}",
         }
         
