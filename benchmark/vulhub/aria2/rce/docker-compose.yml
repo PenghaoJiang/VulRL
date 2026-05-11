@@ -3,4 +3,4 @@ services:
   aria2:
     image: vulhub/aria2:1.18.8
     ports:
-    - 6800
+    - "127.0.0.1::6800"

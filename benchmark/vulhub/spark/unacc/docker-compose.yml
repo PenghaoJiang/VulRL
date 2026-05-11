@@ -2,13 +2,13 @@ services:
   master:
     image: vulhub/spark:2.3.1
     ports:
-    - 8080
-    - 7077
-    - 6066
+    - "127.0.0.1::8080"
+    - "127.0.0.1::7077"
+    - "127.0.0.1::6066"
   slave:
     command: slave spark://master:7077
     image: vulhub/spark:2.3.1
     depends_on:
     - master
     ports:
-    - 8081
+    - "127.0.0.1::8081"

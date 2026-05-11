@@ -3,5 +3,5 @@ services:
   web:
     image: vulhub/kkfileview:4.3.0
     ports:
-    - 8012
-    - 5005
+    - "127.0.0.1::8012"
+    - "127.0.0.1::5005"

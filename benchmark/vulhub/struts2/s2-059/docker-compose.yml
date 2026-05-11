@@ -3,4 +3,4 @@ services:
   struts2:
     image: vulhub/struts2:2.5.16
     ports:
-    - 8080
+    - "127.0.0.1::8080"

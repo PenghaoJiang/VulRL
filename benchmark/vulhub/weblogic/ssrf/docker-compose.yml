@@ -4,6 +4,6 @@ services:
     depends_on:
     - redis
     ports:
-    - 7001
+    - "127.0.0.1::7001"
   redis:
     image: vulhub/baselinux:centos-6

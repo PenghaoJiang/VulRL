@@ -1,33 +1,10 @@
 # vulhub RCE, create /tmp/exploit.txt
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/aj-report/CNVD-2024-15077
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apache-druid/CVE-2021-25646
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2020-13945
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2021-45232
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11981
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2014-3120
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-1427
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/erlang/CVE-2025-32433
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/flask/ssti
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11981
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2014-3120
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/elasticsearch/CVE-2015-1427
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/flink/CVE-2020-17518
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/geoserver/CVE-2024-36401
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/gitlab/CVE-2021-22205
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/gitlist/CVE-2018-1000533
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/hadoop/unauthorized-yarn
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-41773
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-42013
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/jimureport/CVE-2023-4450
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/jupyter/notebook-rce
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/langflow/CVE-2025-3248
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/libssh/CVE-2018-10933
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/metabase/CVE-2023-38646
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/mongo-express/CVE-2019-10758
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/opentsdb/CVE-2020-35476
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/phpunit/CVE-2017-9841
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/php/8.1-backdoor
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2-045
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/thinkphp/5-rce
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/tomcat/CVE-2017-12615
-bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/weblogic/CVE-2017-10271
 
 
 # vulhub read (SQLi, LFI, etc.), extract flag_* from output
@@ -46,6 +23,29 @@ bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apache-cx
 # file read via malicious MySQL LOCAL INFILE
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/adminer/CVE-2021-43008
 # controlled file write
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/aj-report/CNVD-2024-15077
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apache-druid/CVE-2021-25646
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2020-13945
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/apisix/CVE-2021-45232
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/erlang/CVE-2025-32433
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/flask/ssti
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/geoserver/CVE-2024-36401
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/gitlist/CVE-2018-1000533
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-41773
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/httpd/CVE-2021-42013
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/jimureport/CVE-2023-4450
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/jupyter/notebook-rce
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/langflow/CVE-2025-3248
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/libssh/CVE-2018-10933
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/metabase/CVE-2023-38646
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/mongo-express/CVE-2019-10758
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/opentsdb/CVE-2020-35476
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/phpunit/CVE-2017-9841
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/php/8.1-backdoor
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2-045
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/thinkphp/5-rce
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/tomcat/CVE-2017-12615
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/weblogic/CVE-2017-10271
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-11978
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/airflow/CVE-2020-17526
 bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/activemq/CVE-2016-3088
@@ -100,6 +100,24 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/struts2/s2
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/showdoc/CNVD-2020-26585
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/saltstack/CVE-2020-16846
 bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/redis/CVE-2022-0543
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/php/CVE-2012-1823
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/php/CVE-2018-19518
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/pgadmin/CVE-2022-4223
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/opensmtpd/CVE-2020-7247
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/ofbiz/CVE-2023-51467
+bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/ofbiz/CVE-2024-38856
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/node/CVE-2017-14849
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/nexus/CVE-2024-4956
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/mini_httpd/CVE-2018-18778
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/metabase/CVE-2021-41277
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/joomla/CVE-2023-23752
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/joomla/CVE-2017-8917
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/webmin/CVE-2019-15107
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/yapi/unacc
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/zabbix/CVE-2016-10134
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/zabbix/CVE-2017-2824
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/zabbix/CVE-2020-11800
+bash ./run_oracle_and_test_4_read.sh /data1/jph/VulRL/benchmark/vulhub/docker/unauthorized-rce
 # SKIP: vite/CVE-2025-30208 - Vite's server.allowedHosts restricts to localhost only.
 #       Exploit works from host (localhost:port) but blocked from attacker container (web:5173).
 #       Incompatible with attacker-container testing approach.
@@ -129,4 +147,3 @@ bash ./run_oracle_and_test_4_rce.sh /data1/jph/VulRL/benchmark/vulhub/redis/CVE-
 # to make it easy to replicate those files on another machine. You can assume the bash command 
 # is executed under path benchmark/vulhub/. 
 # Then add the cases you generated to vulhub_oracle_and_test\full_test_lists.sh
-

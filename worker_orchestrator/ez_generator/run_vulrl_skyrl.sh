@@ -266,7 +266,7 @@ fi
 
 # WandB configuration (disable for local logging)
 export WANDB_API_KEY="${WANDB_API_KEY:-dummy_key_for_local_logging}"
-export WANDB_MODE="disabled"
+export WANDB_MODE="${WANDB_MODE:-disabled}"
 
 # Add skyrl-train to PYTHONPATH so imports work
 export PYTHONPATH="$SKYRL_PATH:${PYTHONPATH}"

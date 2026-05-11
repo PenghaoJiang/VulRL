@@ -2,4 +2,4 @@ services:
   web:
     image: vulhub/fastjson:1.2.24
     ports:
-    - 8090
+    - "127.0.0.1::8090"
