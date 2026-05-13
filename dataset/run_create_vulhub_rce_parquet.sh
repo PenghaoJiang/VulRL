@@ -49,15 +49,10 @@ echo ""
 INPUT_FILE="${INPUT_FILE:-$REPO_ROOT/vulhub_oracle_and_test/full_test_lists.sh}"
 OUTPUT_FILE="${OUTPUT_FILE:-$SCRIPT_DIR/train_vulhub.parquet}"
 BENCHMARK_ROOT="${BENCHMARK_ROOT:-$REPO_ROOT/benchmark/vulhub}"
-DIFFICULTY="${DIFFICULTY:-easy}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --difficulty)
-            DIFFICULTY="$2"
-            shift 2
-            ;;
         --output)
             OUTPUT_FILE="$2"
             shift 2
@@ -73,17 +68,17 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [options]"
             echo ""
+            echo "This script generates 3 parquet files (easy, medium, hard) in one run."
+            echo ""
             echo "Options:"
-            echo "  --difficulty <easy|medium|hard>  Prompt difficulty (default: easy)"
-            echo "  --output <path>                  Output parquet file"
+            echo "  --output <path>                  Output parquet file base name"
             echo "  --input <path>                   Input test list file"
             echo "  --benchmark-root <path>          Benchmark root directory"
             echo "  -h, --help                       Show this help"
             echo ""
             echo "Examples:"
-            echo "  $0                                    # Create train_vulhub_easy.parquet"
-            echo "  $0 --difficulty medium                # Create train_vulhub_medium.parquet"
-            echo "  $0 --difficulty hard --output out.parquet  # Create out_hard.parquet"
+            echo "  $0                                    # Create train_vulhub_easy.parquet, train_vulhub_medium.parquet, train_vulhub_hard.parquet"
+            echo "  $0 --output custom.parquet            # Create custom_easy.parquet, custom_medium.parquet, custom_hard.parquet"
             exit 0
             ;;
         *)
@@ -93,13 +88,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-
-# Validate difficulty
-if [[ ! "$DIFFICULTY" =~ ^(easy|medium|hard)$ ]]; then
-    echo "✗ Invalid difficulty: $DIFFICULTY"
-    echo "  Must be one of: easy, medium, hard"
-    exit 1
-fi
 
 # Check if input file exists
 if [ ! -f "$INPUT_FILE" ]; then
@@ -119,44 +107,67 @@ fi
 
 echo "Configuration:"
 echo "  Input:          $INPUT_FILE"
-echo "  Output:         $OUTPUT_FILE (will auto-append _$DIFFICULTY)"
+echo "  Output:         $OUTPUT_FILE (base name)"
 echo "  Benchmark Root: $BENCHMARK_ROOT"
-echo "  Difficulty:     $DIFFICULTY"
+echo "  Difficulties:   easy, medium, hard"
 echo ""
 
-# Run the Python script
-echo "Creating parquet..."
-echo ""
+# Array to store created files
+CREATED_FILES=()
+FAILED_COUNT=0
 
-python create_vulhub_rce_parquet.py \
-    --input "$INPUT_FILE" \
-    --output "$OUTPUT_FILE" \
-    --benchmark-root "$BENCHMARK_ROOT" \
-    --difficulty "$DIFFICULTY"
-
-EXIT_CODE=$?
-
-echo ""
-if [ $EXIT_CODE -eq 0 ]; then
-    # Get actual output filename (with difficulty appended)
-    OUTPUT_STEM=$(basename "$OUTPUT_FILE" .parquet)
-    OUTPUT_DIR=$(dirname "$OUTPUT_FILE")
-    ACTUAL_OUTPUT="$OUTPUT_DIR/${OUTPUT_STEM}_${DIFFICULTY}.parquet"
+# Loop through all difficulties
+for DIFFICULTY in easy medium hard; do
+    echo "========================================================================"
+    echo "Creating parquet for difficulty: $DIFFICULTY"
+    echo "========================================================================"
+    echo ""
     
-    echo "✓ Parquet created successfully: $ACTUAL_OUTPUT"
+    python create_vulhub_rce_parquet.py \
+        --input "$INPUT_FILE" \
+        --output "$OUTPUT_FILE" \
+        --benchmark-root "$BENCHMARK_ROOT" \
+        --difficulty "$DIFFICULTY"
+    
+    EXIT_CODE=$?
+    
+    echo ""
+    if [ $EXIT_CODE -eq 0 ]; then
+        # Get actual output filename (with difficulty appended)
+        OUTPUT_STEM=$(basename "$OUTPUT_FILE" .parquet)
+        OUTPUT_DIR=$(dirname "$OUTPUT_FILE")
+        ACTUAL_OUTPUT="$OUTPUT_DIR/${OUTPUT_STEM}_${DIFFICULTY}.parquet"
+        
+        echo "✓ Parquet created successfully: $ACTUAL_OUTPUT"
+        CREATED_FILES+=("$ACTUAL_OUTPUT")
+    else
+        echo "✗ Failed to create parquet for $DIFFICULTY (exit code: $EXIT_CODE)"
+        FAILED_COUNT=$((FAILED_COUNT + 1))
+    fi
+    echo ""
+done
+
+echo "========================================================================"
+echo "Summary"
+echo "========================================================================"
+echo ""
+
+if [ ${#CREATED_FILES[@]} -gt 0 ]; then
+    echo "✓ Successfully created ${#CREATED_FILES[@]} parquet file(s):"
+    for file in "${CREATED_FILES[@]}"; do
+        echo "  - $file"
+    done
     echo ""
     echo "Next steps:"
     echo "  1. Copy to worker_orchestrator for use with SkyRL:"
-    echo "     cp $ACTUAL_OUTPUT $REPO_ROOT/worker_orchestrator/ez_generator/"
+    echo "     cp ${OUTPUT_DIR}/${OUTPUT_STEM}_*.parquet $REPO_ROOT/worker_orchestrator/ez_generator/"
     echo ""
     echo "  2. Use in SkyRL training config:"
-    echo "     dataset_path: worker_orchestrator/ez_generator/$(basename $ACTUAL_OUTPUT)"
+    echo "     dataset_path: worker_orchestrator/ez_generator/${OUTPUT_STEM}_<difficulty>.parquet"
+fi
+
+if [ $FAILED_COUNT -gt 0 ]; then
     echo ""
-    echo "To create other difficulty levels:"
-    echo "  $0 --difficulty easy     # Create easy prompts"
-    echo "  $0 --difficulty medium   # Create medium prompts"
-    echo "  $0 --difficulty hard     # Create hard prompts"
-else
-    echo "✗ Failed to create parquet (exit code: $EXIT_CODE)"
-    exit $EXIT_CODE
+    echo "✗ Failed to create $FAILED_COUNT parquet file(s)"
+    exit 1
 fi
