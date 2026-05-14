@@ -38,11 +38,11 @@ VULRL_TARGET_DIR="$SKYRL_DIR/vulrl_inside_skyrl_v2"
 
 # Training data
 # ctf cases
-TRAIN_DATA="$REPO_ROOT/dataset/ctf_parquet/train_ctf_subtask_combined.parquet"
+# TRAIN_DATA="$REPO_ROOT/dataset/ctf_parquet/train_ctf_subtask_combined.parquet"
 # vulhub cases with different difficulties
 TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_easy.parquet"
-TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_medium.parquet"
-TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_hard.parquet"
+# TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_medium.parquet"
+# TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_hard.parquet"
 
 # Model configuration
 # For production: Qwen/Qwen2.5-14B-Instruct (~28GB)
