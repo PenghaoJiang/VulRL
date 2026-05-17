@@ -38,9 +38,9 @@ VULRL_TARGET_DIR="$SKYRL_DIR/vulrl_inside_skyrl_v2"
 
 # Training data
 # ctf cases
-# TRAIN_DATA="$REPO_ROOT/dataset/ctf_parquet/train_ctf_subtask_combined.parquet"
+TRAIN_DATA="$REPO_ROOT/dataset/ctf_parquet/train_ctf_subtask_combined.parquet"
 # vulhub cases with different difficulties
-TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_easy.parquet"
+# TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_easy.parquet"
 # TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_medium.parquet"
 # TRAIN_DATA="$REPO_ROOT/dataset/cve_vulhub/train_vulhub_hard.parquet"
 
@@ -55,14 +55,23 @@ MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/models/qwen2.5-14b}"
 
 # Training parameters (minimal settings for quick test)
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-$REPO_ROOT/ckpts/vulrl_skyrl_oneclick}"
-NUM_GPUS="${NUM_GPUS:-1}"
+NUM_GPUS="${NUM_GPUS:-8}"
+# GPU placement: non-colocate (disaggregated) mode.
+# Policy/ref (FSDP training) and vLLM inference engines get DISJOINT GPU sets
+# instead of time-sharing the same cards. With NUM_GPUS=8 this is a 4+4 split:
+#   - POLICY_NUM_GPUS=4      -> 4 GPUs for training (policy + ref)
+#   - INFERENCE_NUM_ENGINES=4 -> 4 vLLM engines x TP1 = 4 GPUs for inference
+# Set COLOCATE_ALL=true and these back to $NUM_GPUS to restore colocate mode.
+COLOCATE_ALL="${COLOCATE_ALL:-false}"
+POLICY_NUM_GPUS="${POLICY_NUM_GPUS:-4}"
+INFERENCE_NUM_ENGINES="${INFERENCE_NUM_ENGINES:-4}"
 EPOCHS="${EPOCHS:-1}"
 N_SAMPLES_PER_PROMPT="${N_SAMPLES_PER_PROMPT:-8}"  # GRPO needs in-group variance
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-10}"  # Number of parallel cases
 EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-10}"
 MAX_STEPS="${MAX_STEPS:-30}"
 LEARNING_RATE="${LEARNING_RATE:-1e-6}"
-GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.4}"
+GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
 
 # Service configuration
 WORKER_ROUTER_PORT=12345
@@ -719,6 +728,9 @@ launch_training() {
     export MAX_STEPS="$MAX_STEPS"
     export LEARNING_RATE="$LEARNING_RATE"
     export NUM_GPUS="$NUM_GPUS"
+    export COLOCATE_ALL="$COLOCATE_ALL"
+    export POLICY_NUM_GPUS="$POLICY_NUM_GPUS"
+    export INFERENCE_NUM_ENGINES="$INFERENCE_NUM_ENGINES"
     export CHECKPOINT_DIR="$CHECKPOINT_DIR"
     export GPU_MEMORY_UTILIZATION="$GPU_MEMORY_UTILIZATION"
     export WORKER_ORCHESTRATOR_PATH="$WORKER_ORCH_DIR"
