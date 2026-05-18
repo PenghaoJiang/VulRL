@@ -138,6 +138,15 @@ def _load_default_ctf_agent_config():
     return load_default_agent_config(get_default_prompt_config_path())
 
 
+@lru_cache(maxsize=1)
+def _get_prompt_template_ref() -> str:
+    path = get_default_prompt_config_path()
+    try:
+        return str(path.resolve().relative_to(_REPO_ROOT.resolve()))
+    except ValueError:
+        return path.name
+
+
 def _build_ctf_subtask_prompt(subtasks: List[Dict[str, Any]]) -> str:
     if not subtasks:
         return ""
@@ -285,7 +294,6 @@ def _build_env_config(
     task_type: str,
     task_id: str,
     challenge_relative_path: str,
-    ctfmix_root: str,
     max_steps: int,
     timeout: int,
     description: str,
@@ -295,10 +303,8 @@ def _build_env_config(
         "task_type": task_type,
         "max_steps": max_steps,
         "timeout": timeout,
-        "ctfmix_root": ctfmix_root,
         "challenge_relative_path": challenge_relative_path,
         "backend_config": {
-            "ctfmix_root": ctfmix_root,
             "challenge_relative_path": challenge_relative_path,
         },
         "evaluation_config": {
@@ -337,7 +343,6 @@ def _build_metadata(
     task_type: str,
     challenge_relative_path: str,
     challenge_name: str,
-    ctfmix_root: str,
     challenge_info: Dict[str, Any],
     ctf_subtasks: Optional[List[Dict[str, Any]]] = None,
     agent_prompt_context: str = "",
@@ -348,7 +353,6 @@ def _build_metadata(
         "task_type": task_type,
         "challenge_relative_path": challenge_relative_path,
         "challenge_name": challenge_name,
-        "ctfmix_root": ctfmix_root,
         "challenge_info": challenge_info,
         "expected_flag": challenge_info.get("expected_flag", ""),
         "flag_format": challenge_info.get("flag_format", "flag{...}"),
@@ -359,7 +363,7 @@ def _build_metadata(
         "metadata_source": "parquet",
         "source": "dataset_converter_ctf",
         "agent_prompt_context": agent_prompt_context,
-        "prompt_template": str(get_default_prompt_config_path()),
+        "prompt_template": _get_prompt_template_ref(),
     }
 
 
@@ -406,12 +410,10 @@ def _convert_one(
         ctf_subtasks=ctf_subtasks,
         prompt_context_override=prompt_context_override,
     )
-    ctfmix_root_s = str(ctfmix_root.resolve())
     env_config_dict = _build_env_config(
         task_type=task_type,
         task_id=task_id,
         challenge_relative_path=rel_path,
-        ctfmix_root=ctfmix_root_s,
         max_steps=max_steps,
         timeout=timeout,
         description=desc,
@@ -422,7 +424,6 @@ def _convert_one(
         task_type=task_type,
         challenge_relative_path=rel_path,
         challenge_name=str(raw_name),
-        ctfmix_root=ctfmix_root_s,
         challenge_info=challenge_info,
         ctf_subtasks=ctf_subtasks,
         agent_prompt_context=agent_prompt_context,

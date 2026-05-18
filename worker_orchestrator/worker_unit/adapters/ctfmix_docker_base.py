@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+import fcntl
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -26,6 +27,10 @@ import yaml
 from .env_adapter import BaseEnvAdapter
 from .env_types import ActionType, StandardAction
 from .docker_executor import DockerExecutor
+
+
+_ATTACKER_IMAGE_TAG = "cve-attacker:latest"
+_ATTACKER_BUILD_LOCK_PATH = Path(tempfile.gettempdir()) / "vulrl-cve-attacker-build.lock"
 
 
 def _detect_compose_command() -> List[str]:
@@ -230,11 +235,7 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         bc = config.get("backend_config") or {}
-        self.ctfmix_root = Path(
-            config.get("ctfmix_root")
-            or bc.get("ctfmix_root")
-            or self._default_ctfmix_root()
-        ).resolve()
+        self.ctfmix_root = self._default_ctfmix_root().resolve()
 
         rel = config.get("challenge_relative_path") or bc.get("challenge_relative_path")
         if not rel:
@@ -349,12 +350,15 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
     def setup(self) -> None:
         print(
             f"[{self.ADAPTER_LABEL}] challenge_dir={self.challenge_dir} "
+            f"ctfmix_root={self.ctfmix_root} "
             f"supported={self.ctfmix_supported} reason={self.skip_reason!r} "
             f"metadata_source={self.metadata_source} subtasks={len(self.ctf_subtasks)}"
         )
         if not self.ctfmix_supported:
-            print(f"[{self.ADAPTER_LABEL}] Skipping docker compose ({self.skip_reason})")
-            return
+            raise RuntimeError(
+                f"[{self.ADAPTER_LABEL}] challenge is not supported for docker bring-up "
+                f"(reason={self.skip_reason}, path={self.challenge_relative_path})"
+            )
 
         if not self.challenge_dir.is_dir():
             raise FileNotFoundError(f"Challenge directory not found: {self.challenge_dir}")
@@ -396,9 +400,20 @@ class CTFMixDockerAdapterBase(BaseEnvAdapter):
             raise RuntimeError(f"[{self.ADAPTER_LABEL}] Failed to start compose: {e}") from e
 
         time.sleep(8)
-        self._discover_containers(runtime_compose)
-        if self.network_name:
+        try:
+            self._discover_containers(runtime_compose)
+            if not self.network_name:
+                raise RuntimeError(
+                    f"[{self.ADAPTER_LABEL}] discovered target container "
+                    f"{self.target_container_name!r} without any attached docker network"
+                )
             self._start_attacker()
+        except Exception:
+            try:
+                self.teardown()
+            except Exception as cleanup_error:
+                print(f"[{self.ADAPTER_LABEL}] Cleanup after setup failure errored: {cleanup_error}")
+            raise
         print(f"[{self.ADAPTER_LABEL}] Ready service_url={self.service_url}")
 
     def teardown(self) -> None:
@@ -526,25 +541,62 @@ Obtain the flag and submit it using the required format when your runtime suppor
         )
         if result.returncode != 0 or not result.stdout.strip():
             raise RuntimeError(f"[{self.ADAPTER_LABEL}] compose ps found no containers")
-        cid = result.stdout.strip().splitlines()[0]
-        self.target_container_obj = self.docker_client.containers.get(cid)
-        self.target_container_name = self.target_container_obj.name
-        nets = list(self.target_container_obj.attrs["NetworkSettings"]["Networks"].keys())
-        self.network_name = nets[0] if nets else None
-        print(
-            f"[{self.ADAPTER_LABEL}] target={self.target_container_name} net={self.network_name}"
+        candidate_ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        preferred_network = (
+            self._isolated_network_name if self.ctfmix_isolated_network else "ctfnet"
+        )
+        fallback_container: Optional[docker.models.containers.Container] = None
+        fallback_networks: List[str] = []
+        network_debug: List[str] = []
+
+        for cid in candidate_ids:
+            container = self.docker_client.containers.get(cid)
+            networks = list(
+                (
+                    container.attrs.get("NetworkSettings", {}).get("Networks") or {}
+                ).keys()
+            )
+            network_debug.append(f"{container.name}:{networks or ['<none>']}")
+            if preferred_network and preferred_network in networks:
+                self.target_container_obj = container
+                self.target_container_name = container.name
+                self.network_name = preferred_network
+                print(
+                    f"[{self.ADAPTER_LABEL}] target={self.target_container_name} "
+                    f"net={self.network_name} preferred={preferred_network}"
+                )
+                return
+            if not fallback_container and networks:
+                fallback_container = container
+                fallback_networks = networks
+
+        if fallback_container:
+            self.target_container_obj = fallback_container
+            self.target_container_name = fallback_container.name
+            self.network_name = fallback_networks[0]
+            print(
+                f"[{self.ADAPTER_LABEL}] target={self.target_container_name} "
+                f"net={self.network_name} preferred={preferred_network!r} fallback=true"
+            )
+            return
+
+        raise RuntimeError(
+            f"[{self.ADAPTER_LABEL}] compose containers had no attached networks: "
+            f"{', '.join(network_debug)}"
         )
 
     def _start_attacker(self) -> None:
         try:
-            try:
-                self.docker_client.images.get("cve-attacker:latest")
-            except docker.errors.ImageNotFound:
-                self._build_attacker_image()
+            with open(_ATTACKER_BUILD_LOCK_PATH, "w") as lock_f:
+                fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+                try:
+                    self.docker_client.images.get(_ATTACKER_IMAGE_TAG)
+                except docker.errors.ImageNotFound:
+                    self._build_attacker_image()
             self.attacker_container_name = f"attacker_{self.project_name}"
             assert self.network_name
             self.attacker_container_obj = self.docker_client.containers.run(
-                "cve-attacker:latest",
+                _ATTACKER_IMAGE_TAG,
                 name=self.attacker_container_name,
                 network=self.network_name,
                 detach=True,
@@ -558,18 +610,22 @@ Obtain the flag and submit it using the required format when your runtime suppor
             print(f"[{self.ADAPTER_LABEL}] attacker={self.attacker_container_name}")
         except Exception as e:
             print(f"[{self.ADAPTER_LABEL}] Warning: attacker failed: {e}")
+            raise RuntimeError(
+                f"[{self.ADAPTER_LABEL}] failed to start attacker container"
+            ) from e
 
     def _build_attacker_image(self) -> None:
         dockerfile = """FROM python:3.11-slim
-RUN apt-get update && apt-get install -y jq curl wget netcat-traditional nmap dnsutils iputils-ping nikto && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y jq curl wget netcat-traditional nmap dnsutils iputils-ping && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && (apt-get install -y nikto || echo 'nikto unavailable in current apt sources; continuing without it') && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir requests sqlmap
 WORKDIR /attacker
 CMD ["tail", "-f", "/dev/null"]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, "Dockerfile").write_text(dockerfile, encoding="utf-8")
-            print(f"[{self.ADAPTER_LABEL}] Building cve-attacker:latest …")
-            self.docker_client.images.build(path=tmpdir, tag="cve-attacker:latest", rm=True)
+            print(f"[{self.ADAPTER_LABEL}] Building {_ATTACKER_IMAGE_TAG} …")
+            self.docker_client.images.build(path=tmpdir, tag=_ATTACKER_IMAGE_TAG, rm=True)
 
     def _get_target_info(self) -> Dict[str, Any]:
         return {

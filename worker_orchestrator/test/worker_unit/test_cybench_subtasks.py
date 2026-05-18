@@ -34,11 +34,16 @@ def main() -> int:
     )
 
     prompt_messages = json.loads(row["prompt"])
+    env_config = json.loads(row["env_config"])
     metadata = json.loads(row["metadata"])
     user_prompt = prompt_messages[-1]["content"]
     subtasks = metadata.get("ctf_subtasks") or metadata.get("cybench_subtasks") or []
 
     assert metadata.get("metadata_source") == "parquet"
+    assert "ctfmix_root" not in metadata
+    assert "ctfmix_root" not in env_config
+    assert "ctfmix_root" not in (env_config.get("backend_config") or {})
+    assert not Path(metadata["prompt_template"]).is_absolute()
     assert len(subtasks) == 4
     assert metadata.get("subtask_reward_weight") == 0.1
     assert "## CTF Subtasks" in user_prompt

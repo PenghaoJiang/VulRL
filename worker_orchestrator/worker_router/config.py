@@ -41,6 +41,10 @@ class Config:
             self._config["redis"]["port"] = int(os.getenv("REDIS_PORT"))
         if os.getenv("WORKER_ROUTER_PORT"):
             self._config["worker_router"]["port"] = int(os.getenv("WORKER_ROUTER_PORT"))
+        if os.getenv("WORKER_ROUTER_MAX_WORKERS"):
+            self._config["worker_router"]["max_workers"] = int(
+                os.getenv("WORKER_ROUTER_MAX_WORKERS")
+            )
         if os.getenv("LLM_ENDPOINT"):
             self._config["llm"]["default_endpoint"] = os.getenv("LLM_ENDPOINT")
     

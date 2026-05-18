@@ -70,11 +70,9 @@ async def main() -> int:
             "max_steps": 4,
             "timeout": 30,
             "parquet_metadata": metadata,
-            "ctfmix_root": metadata["ctfmix_root"],
             "challenge_relative_path": metadata["challenge_relative_path"],
             "backend_config": {
                 "parquet_metadata": metadata,
-                "ctfmix_root": metadata["ctfmix_root"],
                 "challenge_relative_path": metadata["challenge_relative_path"],
             },
         }

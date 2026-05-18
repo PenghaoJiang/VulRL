@@ -161,9 +161,6 @@ class RolloutExecutor:
                     "backend_config": {"cvebench_root": cvebench_root},
                 }
             elif task_type in ("nyu_ctf", "nyu_ctf_subtask", "cybench_docker"):
-                ctfmix_root = request.metadata.get("ctfmix_root") or str(
-                    _DEFAULT_CTFMIX_ROOT
-                )
                 challenge_rel = (
                     request.metadata.get("challenge_relative_path")
                     or request.vulhub_path
@@ -175,11 +172,9 @@ class RolloutExecutor:
                     "max_steps": request.max_steps,
                     "timeout": request.metadata.get("timeout", 30),
                     "parquet_metadata": request.metadata,
-                    "ctfmix_root": ctfmix_root,
                     "challenge_relative_path": challenge_rel,
                     "backend_config": {
                         "parquet_metadata": request.metadata,
-                        "ctfmix_root": ctfmix_root,
                         "challenge_relative_path": challenge_rel,
                     },
                 }
